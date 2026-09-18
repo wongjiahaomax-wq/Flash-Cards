@@ -5,7 +5,7 @@ import {
   listSystemStudySelectionSystems,
   resolveSystemStudySelection
 } from '$lib/server/db/study-navigation.ts';
-import { buildAdminStudyPreview } from '$lib/server/learning/admin-study-preview.js';
+import { buildAdminStudyPreview, buildDirectAdminStudyPreview } from '$lib/server/learning/admin-study-preview.js';
 
 /**
  * @param {{topics:{id:string}[],tags:{id:string}[]}} system
@@ -21,11 +21,41 @@ function allRoutes(system) {
 export async function load({ platform, url }) {
   if (!platform?.env?.DB) error(503, 'Admin Study Preview database is not configured.');
   const db = createDb(platform.env.DB);
-  const systems = await listSystemStudySelectionSystems(db);
   const requestedSystemId = String(url.searchParams.get('systemId') ?? '').trim();
+  const requestedCaseId = String(url.searchParams.get('caseId') ?? '').trim();
+  const directMode = url.searchParams.get('mode') === 'direct';
+
+  if (directMode) {
+    let preview = null;
+    let directError = requestedCaseId ? null : 'Open this preview from a Production Case Editor so the exact Case can be resolved.';
+    if (requestedCaseId) {
+      try {
+        preview = await buildDirectAdminStudyPreview({
+          db,
+          caseId: requestedCaseId,
+          contentMode: 'original',
+          rng: () => 0
+        });
+      } catch (cause) {
+        directError = cause instanceof Error ? cause.message : 'This Case cannot be previewed under the current learner-content rules.';
+      }
+    }
+    return {
+      directMode: true,
+      directCaseId: requestedCaseId,
+      directBackHref: requestedCaseId ? `/admin/cases/${encodeURIComponent(requestedCaseId)}` : '/admin/cases',
+      directError,
+      preview,
+      systems: [],
+      selectedSystemId: '',
+      contentMode: 'original',
+      candidates: []
+    };
+  }
+
+  const systems = await listSystemStudySelectionSystems(db);
   const selectedSystem = systems.find((system) => system.id === requestedSystemId) ?? null;
   const contentMode = url.searchParams.get('contentMode') === 'expanded' ? 'expanded' : 'original';
-  const requestedCaseId = String(url.searchParams.get('caseId') ?? '').trim();
 
   if (!selectedSystem) {
     return { systems, selectedSystemId: '', contentMode, candidates: [], preview: null };

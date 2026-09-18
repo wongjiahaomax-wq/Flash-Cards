@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
-import { buildAdminStudyPreview } from '../src/lib/server/learning/admin-study-preview.js';
+import { buildAdminStudyPreview, buildDirectAdminStudyPreview } from '../src/lib/server/learning/admin-study-preview.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 const LEARNER_RUNTIME_TABLES = Object.freeze([
@@ -91,6 +91,41 @@ test('Admin Study Preview resolves current learner content without mutating any 
 
     assert.equal(totalChanges(sqlite), beforeChanges, 'preview resolution must execute no database writes');
     assert.deepEqual(learnerCounts(sqlite), beforeCounts);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('direct Case Editor Study Preview resolves the exact Case without mutating learner state', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const beforeCounts = learnerCounts(sqlite);
+    const beforeChanges = totalChanges(sqlite);
+
+    const preview = await buildDirectAdminStudyPreview({
+      db,
+      caseId: 'seed-anterior-a',
+      contentMode: 'original',
+      rng: () => 0
+    });
+
+    assert.equal(preview.candidate.id, 'seed-anterior-a');
+    assert.equal(preview.snapshot.case.id, 'seed-anterior-a');
+    assert.ok(preview.snapshot.questions.length > 0);
+    assert.equal(totalChanges(sqlite), beforeChanges, 'direct preview resolution must execute no database writes');
+    assert.deepEqual(learnerCounts(sqlite), beforeCounts);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('direct Case Editor Study Preview fails instead of falling back to another Case', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    await assert.rejects(
+      () => buildDirectAdminStudyPreview({ db, caseId: 'missing-case', contentMode: 'original', rng: () => 0 }),
+      /not currently eligible for learner study preview/
+    );
   } finally {
     sqlite.close();
   }
