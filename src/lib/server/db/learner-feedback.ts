@@ -84,7 +84,7 @@ async function readRow(client, id) {
 function labelExpression() {
   return [
     "COALESCE(NULLIF(trim(u.name), ''), '')",
-    "CASE WHEN trim(COALESCE(u.name, '')) <> '' AND trim(COALESCE(u.email, '')) <> '' THEN ' · ' ELSE '' END",
+    "CASE WHEN trim(COALESCE(u.name, '')) <> '' AND (trim(COALESCE(u.email, '')) <> '' OR ar.user_id <> '') THEN ' · ' ELSE '' END",
     "COALESCE(NULLIF(trim(CASE WHEN lower(COALESCE(u.email, '')) LIKE '%@beta.invalid' THEN substr(u.email, 1, length(u.email) - length('@beta.invalid')) ELSE u.email END), ''), ar.user_id)"
   ].join(' || ');
 }
@@ -113,7 +113,7 @@ export async function listCaseFeedback(db, caseId) {
   const normalizedCaseId = required(caseId, 'Case');
   const result = await client.prepare(
     'SELECT ' + FEEDBACK_COLUMNS + ' FROM learner_feedback f LEFT JOIN cases c ON c.id = f.case_id ' +
-    'WHERE f.case_id = ? ORDER BY f.reported_at DESC, f.id DESC'
+    "WHERE f.case_id = ? ORDER BY CASE WHEN f.status = 'open' THEN 0 ELSE 1 END, f.reported_at DESC, f.id DESC"
   ).bind(normalizedCaseId).all();
   return result.results.map(mapRow);
 }
@@ -207,7 +207,7 @@ export async function dismissFeedback(db, { id, adminId }) {
 export async function reopenFeedback(db, { id, adminId }) {
   const client = requireD1Client(db);
   const feedbackId = ensureId(id);
-  const reviewer = required(adminId, 'Reviewing Admin');
+  required(adminId, 'Reviewing Admin');
   const result = await client.prepare(
     'UPDATE learner_feedback SET status = \'open\', reviewed_at = NULL, reviewed_by = NULL ' +
     'WHERE id = ? AND status IN (\'resolved\', \'dismissed\')'

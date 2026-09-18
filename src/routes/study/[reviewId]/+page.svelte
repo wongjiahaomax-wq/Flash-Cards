@@ -1,5 +1,6 @@
 <script>
   import { goto } from '$app/navigation';
+  import { deserialize } from '$app/forms';
   import { onMount } from 'svelte';
 
   import {
@@ -18,6 +19,11 @@
   let completionError = $state('');
   let completing = $state(false);
   let storageRecovery = $state(false);
+  let reportDialog = $state(false);
+  let feedbackBody = $state('');
+  let feedbackError = $state('');
+  let feedbackNotice = $state('');
+  let submittingFeedback = $state(false);
 
   onMount(() => {
     browserRun = readLearnerStudyRun(localStorage);
@@ -101,6 +107,50 @@
       completing = false;
     }
   }
+
+  function openFeedback() {
+    feedbackError = '';
+    feedbackNotice = '';
+    reportDialog = true;
+  }
+
+  function closeFeedback() {
+    if (submittingFeedback) return;
+    reportDialog = false;
+    feedbackError = '';
+  }
+
+  async function submitFeedback(event) {
+    event.preventDefault();
+    if (submittingFeedback) return;
+    submittingFeedback = true;
+    feedbackError = '';
+    feedbackNotice = '';
+    try {
+      const formData = new FormData(event.currentTarget);
+      const response = await fetch('?/submitFeedback', {
+        method: 'POST',
+        headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+        body: formData
+      });
+      const result = deserialize(await response.text());
+      if (result.type === 'failure') {
+        feedbackError = result.data?.error ?? 'Unable to submit feedback right now.';
+        return;
+      }
+      if (result.type === 'error') {
+        feedbackError = 'Unable to submit feedback right now. Please try again.';
+        return;
+      }
+      reportDialog = false;
+      feedbackBody = '';
+      feedbackNotice = 'Thanks — your feedback was submitted.';
+    } catch {
+      feedbackError = 'Unable to submit feedback right now. Please try again.';
+    } finally {
+      submittingFeedback = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -124,6 +174,30 @@
 
   {#if storageRecovery}
     <p class="recovery-notice" role="status">This Review is saved. Browser storage is unavailable, so you can finish it here. You may need to start a new Study session afterward.</p>
+  {/if}
+
+  <div class="review-tools">
+    <button class="button secondary" type="button" onclick={openFeedback}>Report an issue</button>
+    {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
+  </div>
+
+  {#if reportDialog}
+    <div class="feedback-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="feedback-dialog-title">
+      <div class="feedback-dialog">
+        <p class="eyebrow">Case feedback</p>
+        <h2 id="feedback-dialog-title">Report an issue</h2>
+        <p class="muted">Tell us if something in this Case seems incorrect or unclear.</p>
+        <form onsubmit={submitFeedback}>
+          <label for="feedback-body">What should we review?</label>
+          <textarea id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback} autofocus></textarea>
+          {#if feedbackError}<p class="action-error" role="alert">{feedbackError}</p>{/if}
+          <div class="dialog-actions">
+            <button class="button" type="button" onclick={closeFeedback} disabled={submittingFeedback}>Cancel</button>
+            <button class="button primary" type="submit" disabled={submittingFeedback}>{submittingFeedback ? 'Submitting…' : 'Submit'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   {/if}
 
   {#if data.review.assets.length > 0}
@@ -219,6 +293,16 @@
   .case-meta { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:#667085; font-size:.9rem; font-weight:600; }
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
   .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
+  .review-tools { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+  .button.secondary { border-color:#98a2b3; background:#fff; color:#475467; }
+  .feedback-notice { margin:0; color:#027a48; font-size:.9rem; }
+  .feedback-dialog-shell { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:1rem; background:rgba(23,32,51,.35); }
+  .feedback-dialog { width:min(100%, 520px); padding:1.25rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }
+  .feedback-dialog h2 { margin:.15rem 0 .4rem; }
+  .feedback-dialog form { display:grid; gap:.65rem; }
+  .feedback-dialog label { font-weight:650; }
+  .feedback-dialog textarea { min-height:9rem; resize:vertical; padding:.7rem; border:1px solid #98a2b3; border-radius:8px; font:inherit; line-height:1.5; }
+  .dialog-actions { display:flex; justify-content:flex-end; gap:.55rem; }
   .review-section { display:grid; gap:1rem; }
   .section-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .section-heading h2 { margin:.15rem 0 0; }

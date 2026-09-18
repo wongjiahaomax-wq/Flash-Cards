@@ -21,6 +21,7 @@
     <aside class="admin-sidebar" aria-label="Admin navigation">
       <a href="/admin">Dashboard</a>
       <a href="/admin/cases">Cases</a>
+      <a href="/admin/feedback">Feedback</a>
       <a href="/admin/questions">Questions</a>
       <a href="/admin/shared-questions">Shared Questions</a>
       <a href="/admin/images">Images</a>
@@ -45,7 +46,7 @@
   .admin-header-actions { display: flex; align-items: center; gap: 1rem; }
   .admin-header-actions :global(button), .admin-header-actions a { color: #fff; }
   .admin-header-actions :global(button) { padding: 0; border: 0; background: transparent; cursor: pointer; }
-  .admin-body { display: grid; grid-template-columns: minmax(180px, 210px) minmax(0, 1fr); column-gap: clamp(1.5rem, 2vw, 2.5rem); width: min(1760px, calc(100% - 2rem)); margin: 0 auto; }
+  .admin-body { --admin-sidebar-width: minmax(180px, 210px); --admin-sidebar-gap: clamp(1.5rem, 2vw, 2.5rem); display: grid; grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr); column-gap: var(--admin-sidebar-gap); width: min(1760px, calc(100% - 2rem)); margin: 0 auto; }
   .admin-sidebar { display: grid; align-content: start; gap: 0.2rem; padding: 1.5rem 1rem 3rem 0; }
   .admin-sidebar a { padding: 0.7rem 0.8rem; border-radius: 7px; color: #344054; text-decoration: none; font-weight: 650; }
   .admin-sidebar a:hover, .admin-sidebar a:focus-visible { background: #e9eef5; color: #172033; }

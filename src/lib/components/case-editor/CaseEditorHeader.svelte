@@ -1,9 +1,10 @@
 <script>
   import { invalidateAll } from '$app/navigation';
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
+  import { feedbackQueueHref } from '$lib/admin-feedback-state.js';
   import { formatCaseAuthoringDate, formatCaseAuthoringDateTime } from '$lib/case-authoring-dates.js';
   import { shouldClearSaveAllResult } from '$lib/case-editor-coordinator.js';
-  let { selectedCase, previewMode, studyPreviewHref = null, caseLibraryReturnQuery = '', coordinator = null, draftRevision = 0 } = $props();
+  let { selectedCase, previewMode, studyPreviewHref = null, caseLibraryReturnQuery = '', coordinator = null, draftRevision = 0, feedback = null, feedbackReturnQuery = '', onfeedbackopen = () => {} } = $props();
   let unsavedItems = $derived.by(() => {
     draftRevision;
     return /** @type {any[]} */ (coordinator?.dirtyItems() ?? []);
@@ -57,7 +58,7 @@
 
 <section class="page-heading">
   <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p>{#if !previewMode}<p class="muted authoring-dates">Added {formatCaseAuthoringDate(selectedCase.case.createdAt)} · Last edited {formatCaseAuthoringDateTime(selectedCase.case.updatedAt)}</p>{/if}</div>
-  <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
+  <div class="actions">{#if !previewMode && feedback?.historyCount > 0}<button class="button feedback-button" type="button" onclick={onfeedbackopen}>{feedback.openCount > 0 ? 'Feedback · ' + feedback.openCount : 'Feedback'}</button>{/if}{#if !previewMode && feedbackReturnQuery}<a class="button" href={feedbackQueueHref(feedbackReturnQuery)}>Back to Feedback</a>{/if}<a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
     {#if saveableItems.length}<strong>Can be saved with Save All</strong><ul>{#each saveableItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>{item.status}</small></li>{/each}</ul>{/if}
     {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Save All saves the saveable drafts; structural work stays Not submitted until you use its own action.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Not submitted — use this form's action</small></li>{/each}</ul>{/if}
   </div></details>{#if saveableCount}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Structural work remains Not submitted and is not included in Save All.</span>{/if}{#if saveAllResult?.failed && saveAllResult.attempted}<span class="save-all-result error" role="alert">Save All did not complete. Some changes may already have been saved; captured drafts remain marked unsaved. Review them before retrying.</span>{:else if saveAllResult?.failed}<span class="save-all-result error" role="alert">Save All could not start; unsaved changes remain.</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
@@ -84,6 +85,7 @@
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .feedback-button { color: #475467; }
   a:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
   @media (max-width: 760px) { .page-heading { align-items: start; flex-direction: column; } }
 </style>

@@ -4,6 +4,7 @@ import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { CaseLifecycleError, getInactiveProductionCaseRecovery, restoreProductionCase } from '$lib/server/db/case-lifecycle.ts';
 import { createDb } from '$lib/server/db/index.js';
 import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
+import { normalizeFeedbackReturnQuery } from '$lib/admin-feedback-state.js';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -18,7 +19,10 @@ export async function load({ locals, platform, params, url }) {
   const recoveryCase = await getInactiveProductionCaseRecovery(createDb(platform.env.DB), params.caseId);
   if (!recoveryCase) throw error(404, 'Inactive Production Case not found.');
   const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
-  return { recoveryCase, status: url.searchParams.get('status') ?? '', caseLibraryReturnQuery };
+  const feedbackRequested = url.searchParams.get('feedback') === '1';
+  const feedbackId = (url.searchParams.get('feedback_id') ?? '').trim().slice(0, 120);
+  const feedbackReturnQuery = normalizeFeedbackReturnQuery(url.searchParams.get('feedback_return'));
+  return { recoveryCase, status: url.searchParams.get('status') ?? '', caseLibraryReturnQuery, feedback: { requested: feedbackRequested, id: feedbackId || null, returnQuery: feedbackReturnQuery } };
 }
 
 export const actions = {
@@ -40,6 +44,13 @@ export const actions = {
     if (!returnQuery) {
       try { returnQuery = normalizeCaseLibraryReturnQuery(new URL(request.headers.get('referer') ?? '').searchParams.get('return_query')); } catch { returnQuery = ''; }
     }
-    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=case-restored${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`);
+    const feedbackId = formText(formData, 'feedback_id');
+    const feedbackReturnQuery = normalizeFeedbackReturnQuery(formText(formData, 'feedback_return'));
+    if (formText(formData, 'feedback') === '1' && feedbackId) {
+      const feedbackQuery = new URLSearchParams({ feedback: '1', feedback_id: feedbackId });
+      if (feedbackReturnQuery) feedbackQuery.set('feedback_return', feedbackReturnQuery);
+      redirect(303, '/admin/cases/' + encodeURIComponent(caseId) + '?' + feedbackQuery.toString());
+    }
+    redirect(303, \`/admin/cases/\${encodeURIComponent(caseId)}?status=case-restored\${returnQuery ? \`&return_query=\${encodeURIComponent(returnQuery)}\` : ''}\`);
   }
 };

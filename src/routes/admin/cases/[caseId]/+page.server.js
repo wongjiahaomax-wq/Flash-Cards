@@ -7,6 +7,7 @@ import { canManageCaseAssets, CaseAssetInputError, getAdminCaseData, updateCaseA
 import { listCaseImageQuestionSummaries } from '$lib/server/db/case-image-question-summaries.js';
 import { CaseQuestionInputError, listCaseQuestions, saveCaseQuestion } from '$lib/server/db/case-questions.js';
 import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
+import { listCaseFeedback } from '$lib/server/db/learner-feedback.ts';
 import { AdminImageWorkflowInputError, attachAssetsToCase, bulkAddAssetsToStimulusGroup, listCaseImagePicker, updateStimulusOptionCaption, validateStimulusGroupTargetForNewAssets } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTagOptions } from '$lib/server/db/library-options.js';
@@ -35,6 +36,7 @@ function editorRedirect(caseId, status, request, formData, hash = '') {
 }
 /** @param {boolean} [open] @param {string} [search] */
 function emptyImagePicker(open = false, search = '') { return { open, search, assets: [], hasMore: false, limit: 60, targetGroupId: null, targetGroupName: null }; }
+function emptyFeedback(autoOpen = false, originFeedbackId = null, returnQuery = '') { return { reports: [], openCount: 0, historyCount: 0, autoOpen, originFeedbackId, returnQuery }; }
 /** @param {unknown} errorValue */
 function reusableQuestionActionError(errorValue) { const clientError = errorValue instanceof AssetQuestionInputError; if (!clientError) console.error('Case reusable image question action failed.', errorValue); return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to update the reusable image question.' }); }
 /** @param {unknown} input */
@@ -50,14 +52,17 @@ export async function load({ locals, platform, params, url }) {
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
   const pickerSelectedAssetIds = url.searchParams.getAll('picker_selected').map((value) => value.trim()).filter(Boolean);
   const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
-  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], systems: [], status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false, caseLibraryReturnQuery };
+  const feedbackRequested = url.searchParams.get('feedback') === '1';
+  const feedbackId = (url.searchParams.get('feedback_id') ?? '').trim().slice(0, 120);
+  const feedbackReturnQuery = url.searchParams.get('feedback_return') ?? '';
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], systems: [], status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), feedback: emptyFeedback(feedbackRequested, feedbackId || null, feedbackReturnQuery), previewMode: false, caseLibraryReturnQuery };
 
   const db = createDb(platform.env.DB);
   const [taxonomyOptions, tagOptions, manager, questions, stimulusGroupsData] = await Promise.all([
     listCaseEditorTaxonomyOptions(db), listActiveTagOptions(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
   ]);
   const { concepts, systems } = taxonomyOptions;
-  if (!manager) return { concepts, systems, status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false, caseLibraryReturnQuery };
+  if (!manager) return { concepts, systems, status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), feedback: emptyFeedback(feedbackRequested, feedbackId || null, feedbackReturnQuery), previewMode: false, caseLibraryReturnQuery };
 
   const stimulusGroups = stimulusGroupsData.map((group) => ({ ...group, options: group.options.map((option) => ({ ...option, imageUrl: option.assetIsActive ? getTeachingImageUrl(option.assetId) : null })) }));
   const targetRequested = url.searchParams.get('target_group')?.trim() ?? '';
@@ -68,16 +73,25 @@ export async function load({ locals, platform, params, url }) {
     ...manager.attached.map((asset) => ({ assetId: asset.assetId, stimulusOptionId: null })),
     ...stimulusGroups.flatMap((group) => group.options.map((option) => ({ assetId: option.assetId, stimulusOptionId: option.id })))
   ];
-  const [caseTags, reusableImageQuestions, pickerResults] = await Promise.all([
+  const [caseTags, reusableImageQuestions, pickerResults, feedbackReports] = await Promise.all([
     listProductionCaseTags(db, params.caseId),
     listCaseImageQuestionSummaries(db, imageQuestionContexts),
-    pickerOpen ? listCaseImagePicker(db, params.caseId, { search: pickerSearch }) : Promise.resolve({ assets: [], hasMore: false, limit: 60, search: pickerSearch })
+    pickerOpen ? listCaseImagePicker(db, params.caseId, { search: pickerSearch }) : Promise.resolve({ assets: [], hasMore: false, limit: 60, search: pickerSearch }),
+    listCaseFeedback(db, params.caseId)
   ]);
 
   return {
     concepts, systems, status: url.searchParams.get('status'), removedQuestionPromptId: url.searchParams.get('removed_question'), previewMode: false, caseLibraryReturnQuery,
     selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, tagOptions, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
-    imagePicker: { open: pickerOpen, ...pickerResults, selectedAssetIds: pickerSelectedAssetIds, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
+    imagePicker: { open: pickerOpen, ...pickerResults, selectedAssetIds: pickerSelectedAssetIds, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null },
+    feedback: {
+      reports: feedbackReports,
+      openCount: feedbackReports.filter((report) => report.status === 'open').length,
+      historyCount: feedbackReports.length,
+      autoOpen: feedbackRequested,
+      originFeedbackId: feedbackId || null,
+      returnQuery: feedbackReturnQuery
+    }
   };
 }
 
