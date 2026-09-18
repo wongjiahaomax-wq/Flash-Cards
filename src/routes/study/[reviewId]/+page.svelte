@@ -1,6 +1,6 @@
 <script>
+  import { deserialize, enhance } from '$app/forms';
   import { goto } from '$app/navigation';
-  import { deserialize } from '$app/forms';
   import { onMount } from 'svelte';
 
   import {
@@ -12,6 +12,7 @@
     persistLearnerStudyRunReplacement,
     readLearnerStudyRun
   } from '$lib/learner-study-run-storage.js';
+  import { activeStudyRunProgress } from '$lib/study-run-progress.js';
 
   let { data } = $props();
   /** @type {any} */
@@ -39,6 +40,10 @@
       feedbackDialog.close();
     }
   });
+  /** @type {any} */
+  let inspectedAsset = $state(null);
+  /** @type {HTMLButtonElement|undefined} */
+  let closeImageButton = $state();
 
   onMount(() => {
     browserRun = readLearnerStudyRun(localStorage);
@@ -51,6 +56,39 @@
       ? 'Expanded Learning · includes related questions'
       : 'Original questions · curated for this Case';
   }
+
+  /** @param {any} asset */
+  function openAssetInspection(asset) {
+    inspectedAsset = asset;
+  }
+
+  function closeAssetInspection() {
+    inspectedAsset = null;
+  }
+
+  /** @param {MouseEvent} event */
+  function handleImageDialogClick(event) {
+    if (event.target === event.currentTarget) closeAssetInspection();
+  }
+
+  /** @param {KeyboardEvent} event */
+  function handleImageDialogKeydown(event) {
+    if (event.key === 'Escape' && inspectedAsset) closeAssetInspection();
+  }
+
+  $effect(() => {
+    if (inspectedAsset) requestAnimationFrame(() => closeImageButton?.focus());
+  });
+
+  /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
+  const preserveRevealPosition = () => {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    return async ({ update }) => {
+      await update();
+      requestAnimationFrame(() => window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' }));
+    };
+  };
 
   /** @param {any} descriptor */
   async function openFollowingReview(descriptor) {
@@ -191,7 +229,10 @@
       submittingFeedback = false;
     }
   }
+  let runProgress = $derived(activeStudyRunProgress(browserRun));
 </script>
+
+<svelte:window onkeydown={handleImageDialogKeydown} />
 
 <svelte:head>
   <title>Active Review | Flash-Cards</title>
@@ -204,6 +245,7 @@
       <span class="muted">Review in progress</span>
       <span class="review-nav-divider" aria-hidden="true"></span>
       <button class="feedback-link" type="button" onclick={openFeedback}>Report an issue</button>
+      {#if runProgress}<span class="run-progress">Case {runProgress.current} of {runProgress.total}</span>{/if}
     </div>
   </nav>
 
@@ -212,7 +254,7 @@
       <span>{data.review.studyMode === 'scheduled' ? 'Scheduled Study' : 'Free Study'}</span>
       <span class="badge">{contentModeLabel(data.review.contentMode)}</span>
     </div>
-    <h1>Case review</h1>
+    <h1>{data.review.revealed && data.review.caseTitle ? data.review.caseTitle : 'Case review'}</h1>
     {#if data.review.vignette}<p>{data.review.vignette}</p>{/if}
   </header>
 
@@ -253,12 +295,54 @@
       <div class:singleAsset={data.review.assets.length === 1} class="asset-grid">
         {#each data.review.assets as asset}
           <figure>
-            <div class="asset-stage"><img src={asset.imageUrl} alt={asset.altText ?? asset.caption ?? 'Teaching image'} /></div>
+            <div class="asset-stage">
+              <button
+                class="asset-image-button"
+                type="button"
+                aria-label="Inspect image"
+                onclick={() => openAssetInspection(asset)}
+              >
+                <img src={asset.imageUrl} alt={asset.altText ?? asset.caption ?? 'Teaching image'} />
+              </button>
+              <button
+                class="asset-inspect-button"
+                type="button"
+                aria-label="Inspect image"
+                title="Inspect image"
+                onclick={() => openAssetInspection(asset)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+              </button>
+            </div>
             {#if asset.caption}<figcaption>{asset.caption}</figcaption>{/if}
           </figure>
         {/each}
       </div>
     </section>
+  {/if}
+
+  {#if inspectedAsset}
+    <div class="asset-modal-backdrop" role="presentation" onclick={handleImageDialogClick}>
+      <div class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" onclick={(event) => event.stopPropagation()}>
+        <div class="asset-dialog-panel">
+          <div class="asset-dialog-header">
+            <div>
+              <p class="eyebrow">Image inspection</p>
+              <h2 id="asset-dialog-title">Enlarged teaching image</h2>
+            </div>
+            <button bind:this={closeImageButton} class="close-button" type="button" onclick={closeAssetInspection}>Close</button>
+          </div>
+          <div class="asset-dialog-image-wrap">
+            <img
+              class="asset-dialog-image"
+              src={inspectedAsset.imageUrl}
+              alt={inspectedAsset.altText ?? inspectedAsset.caption ?? 'Teaching image'}
+            />
+          </div>
+          {#if inspectedAsset.caption}<p class="asset-dialog-caption">{inspectedAsset.caption}</p>{/if}
+        </div>
+      </div>
+    </div>
   {/if}
 
   <section class="review-section" aria-labelledby="questions-heading">
@@ -295,7 +379,7 @@
         <strong>Ready to check?</strong>
         <p class="muted">Reveal all answers before completing this Review.</p>
       </div>
-      <form method="POST" action="?/reveal">
+      <form method="POST" action="?/reveal" use:enhance={preserveRevealPosition}>
         <button class="button primary action-button" type="submit">Reveal answers</button>
       </form>
     {:else if data.review.studyMode === 'scheduled'}
@@ -326,6 +410,7 @@
 <style>
   .review-shell { display:grid; gap:1.5rem; max-width:920px; }
   .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.9rem; }
+  .run-progress { padding:.25rem .55rem; border:1px solid #d0d5dd; border-radius:999px; color:#344054; font-size:.82rem; font-weight:700; }
   .review-nav a { text-decoration:none; } .review-nav a:hover,.review-nav a:focus-visible { text-decoration:underline; }
   .review-nav-status { display:flex; align-items:center; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
   .review-nav-divider { width:1px; height:1.1rem; background:#d0d5dd; }
@@ -354,10 +439,25 @@
   .asset-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .asset-grid.singleAsset { grid-template-columns:minmax(0,1fr); }
   figure { margin:0; display:grid; gap:.55rem; }
-  .asset-stage { min-height:300px; display:grid; place-items:center; border:1px dashed #98a2b3; border-radius:14px; background:#eef2f6; }
+  .asset-stage { position:relative; min-height:300px; display:grid; place-items:center; border:1px dashed #98a2b3; border-radius:14px; background:#eef2f6; }
   .asset-stage img { display:block; width:100%; max-height:520px; object-fit:contain; border-radius:12px; }
+  .asset-image-button { display:grid; width:100%; height:100%; padding:.75rem; border:0; background:transparent; cursor:zoom-in; }
+  .asset-image-button:focus-visible,.asset-inspect-button:focus-visible,.close-button:focus-visible { outline:3px solid rgba(52,64,84,.35); outline-offset:2px; }
+  .asset-inspect-button { position:absolute; top:.75rem; right:.75rem; display:grid; place-items:center; width:2.25rem; height:2.25rem; padding:0; border:1px solid #cdd6e3; border-radius:999px; background:rgb(255 255 255 / 94%); color:#172033; cursor:zoom-in; box-shadow:0 2px 8px rgb(16 24 40 / 12%); }
+  .asset-inspect-button svg { width:1.15rem; height:1.15rem; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:2; }
   .singleAsset .asset-stage { min-height:390px; }
   figcaption { color:#667085; font-size:.88rem; }
+  .asset-modal-backdrop { position:fixed; z-index:10; inset:0; display:grid; place-items:center; padding:1.5rem; background:rgb(16 24 40 / 78%); backdrop-filter:blur(3px); }
+  .asset-dialog { box-sizing:border-box; width:min(92vw,1300px); max-width:calc(100vw - 2rem); max-height:calc(100vh - 2rem); overflow:hidden; border:1px solid rgb(255 255 255 / 45%); border-bottom:4px solid #172033; border-radius:18px; background:#fff; box-shadow:0 28px 90px rgb(16 24 40 / 38%); }
+  .asset-dialog-panel { display:grid; gap:0; max-height:calc(100vh - 2rem - 4px); overflow:hidden; }
+  .asset-dialog-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.25rem; border-bottom:1px solid #dfe5ee; background:#fff; }
+  .asset-dialog-header h2 { margin:.18rem 0 0; color:#172033; font-size:1.08rem; letter-spacing:-.01em; }
+  .asset-dialog-image-wrap { display:grid; place-items:center; min-height:0; overflow:auto; padding:1.25rem 1.5rem 1.5rem; background:#f2f4f7; }
+  .asset-dialog-image { display:block; width:100%; height:auto; max-width:1200px; max-height:calc(100vh - 10rem); border:1px solid #d0d5dd; border-radius:10px; background:#fff; box-shadow:0 12px 30px rgb(16 24 40 / 16%); object-fit:contain; }
+  .asset-dialog-caption { margin:0; padding:.8rem 1.25rem 1rem; border-top:1px solid #dfe5ee; background:#fff; color:#667085; font-size:.9rem; line-height:1.5; }
+  .close-button { padding:.6rem .95rem; border:1px solid #cdd6e3; border-radius:9px; background:#172033; color:#fff; font:inherit; font-weight:700; cursor:pointer; box-shadow:0 2px 6px rgb(16 24 40 / 12%); }
+  .close-button:hover { background:#344054; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   .question-list { display:grid; gap:.85rem; }
   .question-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:1rem; padding:1.1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .question-number { display:grid; place-items:center; width:2rem; height:2rem; border-radius:999px; background:#172033; color:#fff; font-weight:700; }
@@ -366,7 +466,7 @@
   .answer-block { display:grid; gap:.4rem; margin-top:.9rem; padding-top:.9rem; border-top:1px solid #e6eaf0; }
   .answer-block p { margin:0; line-height:1.55; }
   .answer-label { color:#344054; font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
-  .review-actions { position:sticky; bottom:1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:rgba(255,255,255,.96); box-shadow:0 10px 30px rgba(23,32,51,.1); backdrop-filter:blur(8px); }
+  .review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(23,32,51,.1); }
   .review-actions p { margin:.25rem 0 0; font-size:.9rem; }
   .rating-buttons { display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
   .rating-button,.action-button { min-width:105px; text-align:center; }
@@ -375,8 +475,14 @@
   .action-error { color:#b42318; }
   @media (max-width:700px) {
     .section-heading,.review-actions { display:grid; align-items:stretch; }
+    .review-nav { align-items:flex-start; }
     .asset-grid { grid-template-columns:1fr; }
     .asset-stage,.singleAsset .asset-stage { min-height:260px; }
+    .asset-modal-backdrop { padding:.5rem; }
+    .asset-dialog { width:calc(100vw - 1rem); max-height:calc(100vh - 1rem); }
+    .asset-dialog-panel { max-height:calc(100vh - 1rem - 4px); }
+    .asset-dialog-image-wrap { padding:.75rem .75rem 1rem; }
+    .asset-dialog-image { max-height:calc(100vh - 9rem); }
     .rating-buttons { display:grid; grid-template-columns:1fr 1fr; }
     .rating-button,.action-button { width:100%; }
   }

@@ -34,6 +34,7 @@ export async function load({ locals, params, platform }) {
   await requireStudyDataDeletionInactive(db, user.id);
   const review = await getActiveReviewById(db, user.id, params.reviewId);
   if (!review) error(404, 'Active Review not found or expired.');
+  const revealed = Boolean(review.revealedAt);
   return {
     review: {
       id: review.id,
@@ -41,7 +42,8 @@ export async function load({ locals, params, platform }) {
       contentMode: review.contentMode,
       queueClass: review.queueClass,
       vignette: review.vignetteSnapshotMd,
-      revealed: Boolean(review.revealedAt),
+      revealed,
+      ...(revealed ? { caseTitle: review.caseTitleSnapshot } : {}),
       startedAt: review.startedAt?.getTime?.() ?? Number(review.startedAt),
       questions: review.questions.map((question) => ({
         id: question.id,

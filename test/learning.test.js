@@ -201,6 +201,24 @@ test('review selection defaults to three questions and snapshots display order',
   assert.equal(new Set(picked.map((question) => question.questionPromptId)).size, 3);
 });
 
+test('Core review selection keeps the resolved pool order after random subset selection', () => {
+  const pool = ['one', 'two', 'three', 'four'].map((id) => ({
+    questionPromptId: id,
+    promptMd: id,
+    answerMd: id
+  }));
+  let calls = 0;
+  const picked = pickReviewQuestions(pool, {
+    count: 2,
+    mode: 'fixed',
+    rng: () => [0, 0.9, 0.9][calls++] ?? 0.9,
+    preservePoolOrder: true
+  });
+
+  assert.deepEqual(picked.map((question) => question.questionPromptId), ['two', 'four']);
+  assert.deepEqual(picked.map((question) => question.displayOrder), [0, 1]);
+});
+
 test('review selection never displays more than four questions', () => {
   const pool = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ questionPromptId: id }));
   const picked = pickReviewQuestions(pool, { count: 99, rng: () => 0.5 });
