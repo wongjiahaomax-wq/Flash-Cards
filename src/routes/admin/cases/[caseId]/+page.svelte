@@ -188,7 +188,7 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} feedback={feedbackSummary} feedbackReturnQuery={data.feedback?.autoOpen ? data.feedback.returnQuery : ''} onfeedbackopen={() => (feedbackOpen = true)} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} feedback={feedbackSummary} feedbackReturnQuery={data.feedback?.autoOpen ? data.feedback.returnQuery : ''} onfeedbackopen={() => (feedbackOpen = !feedbackOpen)} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}

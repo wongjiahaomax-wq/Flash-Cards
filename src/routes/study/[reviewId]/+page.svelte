@@ -161,7 +161,11 @@
 <main class="shell review-shell">
   <nav class="review-nav" aria-label="Study navigation">
     <a href="/study">← Back to Study</a>
-    <span class="muted">Review in progress</span>
+    <div class="review-nav-status">
+      <span class="muted">Review in progress</span>
+      <span class="review-nav-divider" aria-hidden="true"></span>
+      <button class="feedback-link" type="button" onclick={openFeedback}>Report an issue</button>
+    </div>
   </nav>
 
   <header class="case-header">
@@ -177,17 +181,14 @@
     <p class="recovery-notice" role="status">This Review is saved. Browser storage is unavailable, so you can finish it here. You may need to start a new Study session afterward.</p>
   {/if}
 
-  <div class="review-tools">
-    <button class="button secondary" type="button" onclick={openFeedback}>Report an issue</button>
-    {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
-  </div>
+  {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
 
   {#if reportDialog}
     <div class="feedback-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="feedback-dialog-title">
       <div class="feedback-dialog">
         <p class="eyebrow">Case feedback</p>
         <h2 id="feedback-dialog-title">Report an issue</h2>
-        <p class="muted">Tell us if something in this Case seems incorrect or unclear.</p>
+        <p class="muted">Tell us if something in this case seems incorrect or unclear.</p>
         <form onsubmit={submitFeedback}>
           <label for="feedback-body">What should we review?</label>
           <textarea id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback} autofocus></textarea>
@@ -285,8 +286,12 @@
 
 <style>
   .review-shell { display:grid; gap:1.5rem; max-width:920px; }
-  .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-size:.9rem; }
+  .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.9rem; }
   .review-nav a { text-decoration:none; } .review-nav a:hover,.review-nav a:focus-visible { text-decoration:underline; }
+  .review-nav-status { display:flex; align-items:center; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
+  .review-nav-divider { width:1px; height:1.1rem; background:#d0d5dd; }
+  .feedback-link { padding:0; border:0; background:transparent; color:#175cd3; cursor:pointer; font:inherit; }
+  .feedback-link:hover { text-decoration:underline; text-underline-offset:.15em; }
   .case-header { display:grid; gap:.75rem; padding-bottom:.5rem; }
   .case-header h1,.case-header p { margin:0; }
   .case-header h1 { font-size:clamp(1.8rem,4vw,2.5rem); line-height:1.12; }
@@ -294,8 +299,6 @@
   .case-meta { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:#667085; font-size:.9rem; font-weight:600; }
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
   .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
-  .review-tools { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
-  .button.secondary { border-color:#98a2b3; background:#fff; color:#475467; }
   .feedback-notice { margin:0; color:#027a48; font-size:.9rem; }
   .feedback-dialog-shell { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:1rem; background:rgba(23,32,51,.35); }
   .feedback-dialog { width:min(100%, 520px); padding:1.25rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }

@@ -21,7 +21,6 @@
     <aside class="admin-sidebar" aria-label="Admin navigation">
       <a href="/admin">Dashboard</a>
       <a href="/admin/cases">Cases</a>
-      <a href="/admin/feedback">Feedback</a>
       <a href="/admin/questions">Questions</a>
       <a href="/admin/shared-questions">Shared Questions</a>
       <a href="/admin/images">Images</a>
@@ -32,6 +31,7 @@
       <a href="/admin/my-study-data">My study data</a>
       <a href="/admin/import">Import package</a>
       <a href="/admin/accounts">Accounts</a>
+      <a href="/admin/feedback">Feedback</a>
     </aside>
 
     <main class="admin-content">{@render children()}</main>
@@ -39,8 +39,9 @@
 </div>
 
 <style>
+  :global(html), :global(body) { overscroll-behavior-y: none; }
   .admin-frame { min-height: 100vh; background: #f6f8fb; }
-  .admin-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem max(1rem, calc((100% - 1760px) / 2)); background: #172033; color: #fff; }
+  .admin-header { position: relative; z-index: 50; display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem max(1rem, calc((100% - 1760px) / 2)); background: #172033; color: #fff; }
   .admin-brand { color: #fff; font-size: 1.05rem; font-weight: 750; text-decoration: none; }
   .admin-brand span { color: #b8c7db; font-size: 0.85rem; font-weight: 500; }
   .admin-header-actions { display: flex; align-items: center; gap: 1rem; }
