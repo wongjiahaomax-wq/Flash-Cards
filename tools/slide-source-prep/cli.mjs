@@ -282,31 +282,44 @@ export function prepareSource(options) {
   });
 }
 
-function printSummary(result) {
-  console.log(`Source: ${result.sourcePath}`);
-  console.log(`Type: ${result.type}`);
-  console.log(`Slides/pages: ${result.pageCount}`);
-  console.log(`Rendered PDF: ${result.renderedPdfPath ?? 'not applicable'}`);
-  console.log(`Index: ${result.indexPath}`);
-  console.log(`Source map: ${result.sourceMapPath}`);
-  console.log(`Chunks: ${result.chunks.length}`);
-  console.log(`Warnings: ${result.warnings.length}`);
-  console.log(`Output directory: ${result.outputDir}`);
+function printSummary(result, writeLine = line => console.log(line)) {
+  writeLine(`Source: ${result.sourcePath}`);
+  writeLine(`Type: ${result.type}`);
+  writeLine(`Slides/pages: ${result.pageCount}`);
+  writeLine(`Rendered PDF: ${result.renderedPdfPath ?? 'not applicable'}`);
+  writeLine(`Index: ${result.indexPath}`);
+  writeLine(`Source map: ${result.sourceMapPath}`);
+  writeLine(`Chunks: ${result.chunks.length}`);
+  writeLine(`Warnings: ${result.warnings.length}`);
+  writeLine(`Output directory: ${result.outputDir}`);
 }
 
-const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) {
+export function runCli(argv, { writeStdout = value => process.stdout.write(String(value)), writeStderr = value => process.stderr.write(String(value)) } = {}) {
   try {
-    const options = parseArgs(process.argv.slice(2));
+    const options = parseArgs(argv);
     if (options.help) {
-      process.stdout.write(usage());
+      writeStdout(usage());
     } else {
-      printSummary(prepareSource(options));
+      printSummary(prepareSource(options), line => writeStdout(`${line}\n`));
     }
+    return 0;
   } catch (error) {
-    console.error(formatFailure(error));
-    console.error('');
-    console.error(usage().trimEnd());
-    process.exitCode = 1;
+    writeStderr(`${formatFailure(error)}\n\n${usage().trimEnd()}`);
+    return 1;
   }
 }
+
+export function runDirectEntry({
+  argv = process.argv.slice(2),
+  argv1 = process.argv[1],
+  writeStdout = value => process.stdout.write(String(value)),
+  writeStderr = value => process.stderr.write(String(value)),
+  setExitCode = value => { process.exitCode = value; },
+} = {}) {
+  const invokedDirectly = argv1 && resolve(argv1) === fileURLToPath(import.meta.url);
+  if (!invokedDirectly) return false;
+  setExitCode(runCli(argv, { writeStdout, writeStderr }));
+  return true;
+}
+
+runDirectEntry();

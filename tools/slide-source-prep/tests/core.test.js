@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +10,7 @@ import {
 } from '../core.mjs';
 import {
   formatFailure, parseArgs, planChunkArtifacts, planPreparation,
-  prepareOutputDirectory, withPreparedOutput,
+  prepareOutputDirectory, runCli, runDirectEntry, withPreparedOutput,
 } from '../cli.mjs';
 
 function tempDir() { return mkdtempSync(join(tmpdir(), 'slide-prep-test-')); }
@@ -228,15 +227,28 @@ test('PowerPoint adapter filters invisible groups/shapes and off-slide geometry 
 test('direct CLI invocation executes preparation and reports a supported-source failure', () => {
   const root = tempDir();
   const sourcePath = join(root, 'Missing.pdf');
-  const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
   try {
-    const result = spawnSync(process.execPath, [cliPath, sourcePath], {
-      encoding: 'utf8',
-      windowsHide: true,
+    let output = '';
+    const status = runCli([sourcePath], {
+      writeStdout: value => { output += value; },
+      writeStderr: value => { output += value; },
     });
-    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
-    assert.notEqual(result.status, 0, `direct CLI unexpectedly succeeded:\n${output}`);
+    assert.notEqual(status, 0, `direct CLI unexpectedly succeeded:\n${output}`);
     assert.match(output, /Slide preparation failed: Source file does not exist:/);
+
+    let entryOutput = '';
+    let exitCode = null;
+    const invoked = runDirectEntry({
+      argv: [sourcePath],
+      argv1: fileURLToPath(new URL('../cli.mjs', import.meta.url)),
+      writeStdout: value => { entryOutput += value; },
+      writeStderr: value => { entryOutput += value; },
+      setExitCode: value => { exitCode = value; },
+    });
+    assert.equal(invoked, true);
+    assert.equal(exitCode, 1);
+    assert.match(entryOutput, /Slide preparation failed: Source file does not exist:/);
+    assert.equal(runDirectEntry({ argv1: fileURLToPath(new URL('../core.mjs', import.meta.url)) }), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
