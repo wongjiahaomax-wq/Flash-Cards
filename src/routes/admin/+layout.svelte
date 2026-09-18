@@ -21,6 +21,7 @@
     <aside class="admin-sidebar" aria-label="Admin navigation">
       <a href="/admin">Dashboard</a>
       <a href="/admin/cases">Cases</a>
+      <a href="/admin/feedback">Feedback</a>
       <a href="/admin/questions">Questions</a>
       <a href="/admin/shared-questions">Shared Questions</a>
       <a href="/admin/images">Images</a>
@@ -31,7 +32,6 @@
       <a href="/admin/my-study-data">My study data</a>
       <a href="/admin/import">Import package</a>
       <a href="/admin/accounts">Accounts</a>
-      <a href="/admin/feedback">Feedback</a>
     </aside>
 
     <main class="admin-content">{@render children()}</main>

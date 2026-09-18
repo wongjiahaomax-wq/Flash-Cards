@@ -24,6 +24,21 @@
   let feedbackError = $state('');
   let feedbackNotice = $state('');
   let submittingFeedback = $state(false);
+  /** @type {HTMLDialogElement | undefined} */
+  let feedbackDialog = $state();
+  /** @type {HTMLTextAreaElement | undefined} */
+  let feedbackTextarea = $state();
+  /** @type {HTMLButtonElement | undefined} */
+  let feedbackTrigger = $state();
+
+  $effect(() => {
+    if (reportDialog && feedbackDialog && !feedbackDialog.open) {
+      feedbackDialog.showModal();
+      requestAnimationFrame(() => feedbackTextarea?.focus());
+    } else if (!reportDialog && feedbackDialog?.open) {
+      feedbackDialog.close();
+    }
+  });
 
   onMount(() => {
     browserRun = readLearnerStudyRun(localStorage);
@@ -108,7 +123,9 @@
     }
   }
 
-  function openFeedback() {
+  /** @param {MouseEvent} event */
+  function openFeedback(event) {
+    feedbackTrigger = /** @type {HTMLButtonElement} */ (event.currentTarget);
     feedbackError = '';
     feedbackNotice = '';
     reportDialog = true;
@@ -116,8 +133,25 @@
 
   function closeFeedback() {
     if (submittingFeedback) return;
+    if (feedbackDialog?.open) feedbackDialog.close();
     reportDialog = false;
     feedbackError = '';
+    requestAnimationFrame(() => feedbackTrigger?.focus());
+  }
+
+  /** @param {Event} event */
+  function handleFeedbackCancel(event) {
+    if (submittingFeedback) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    closeFeedback();
+  }
+
+  /** @param {MouseEvent} event */
+  function handleFeedbackBackdrop(event) {
+    if (event.target === feedbackDialog) closeFeedback();
   }
 
   /** @param {SubmitEvent} event */
@@ -143,7 +177,7 @@
         feedbackError = 'Unable to submit feedback right now. Please try again.';
         return;
       }
-      reportDialog = false;
+      closeFeedback();
       feedbackBody = '';
       feedbackNotice = 'Thanks — your feedback was submitted.';
     } catch {
@@ -184,14 +218,14 @@
   {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
 
   {#if reportDialog}
-    <div class="feedback-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="feedback-dialog-title">
-      <div class="feedback-dialog">
+    <dialog bind:this={feedbackDialog} class="feedback-dialog" aria-labelledby="feedback-dialog-title" oncancel={handleFeedbackCancel} onclick={handleFeedbackBackdrop}>
+      <div class="feedback-dialog-content">
         <p class="eyebrow">Case feedback</p>
         <h2 id="feedback-dialog-title">Report an issue</h2>
-        <p class="muted">Tell us if something in this case seems incorrect or unclear.</p>
+        <p class="muted">Tell us if something in this case seems incorrect or unclear. If relevant, mention the question or image you're referring to.</p>
         <form onsubmit={submitFeedback}>
           <label for="feedback-body">What should we review?</label>
-          <textarea id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback} autofocus></textarea>
+          <textarea bind:this={feedbackTextarea} id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback}></textarea>
           {#if feedbackError}<p class="action-error" role="alert">{feedbackError}</p>{/if}
           <div class="dialog-actions">
             <button class="button" type="button" onclick={closeFeedback} disabled={submittingFeedback}>Cancel</button>
@@ -199,7 +233,7 @@
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   {/if}
 
   {#if data.review.assets.length > 0}
@@ -300,8 +334,9 @@
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
   .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
   .feedback-notice { margin:0; color:#027a48; font-size:.9rem; }
-  .feedback-dialog-shell { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:1rem; background:rgba(23,32,51,.35); }
-  .feedback-dialog { width:min(100%, 520px); padding:1.25rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }
+  .feedback-dialog { width:min(100% - 2rem, 520px); max-height:calc(100vh - 2rem); margin:auto; padding:0; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }
+  .feedback-dialog::backdrop { background:rgba(23,32,51,.35); }
+  .feedback-dialog-content { padding:1.25rem; }
   .feedback-dialog h2 { margin:.15rem 0 .4rem; }
   .feedback-dialog form { display:grid; gap:.65rem; }
   .feedback-dialog label { font-weight:650; }

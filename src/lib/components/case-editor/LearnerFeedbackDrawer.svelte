@@ -51,6 +51,15 @@
     return report.id === originFeedbackId;
   }
 
+  function sortReports(reportsToSort) {
+    return [...reportsToSort].sort((left, right) => {
+      const openDelta = Number(right.status === 'open') - Number(left.status === 'open');
+      if (openDelta !== 0) return openDelta;
+      const timeDelta = Number(right.reportedAt) - Number(left.reportedAt);
+      return timeDelta !== 0 ? timeDelta : String(right.id).localeCompare(String(left.id));
+    });
+  }
+
   async function mutate(report, action) {
     if (mutatingId) return;
     if (action === 'delete' && !window.confirm('Delete this feedback report permanently? This cannot be undone.')) return;
@@ -81,7 +90,8 @@
         localReports = localReports.filter((item) => item.id !== report.id);
         if (localReports.every((item) => item.status !== 'open')) showHistory = true;
       } else {
-        localReports = localReports.map((item) => item.id === report.id ? updated : item);
+        localReports = sortReports(localReports.map((item) => item.id === report.id ? updated : item));
+        if (localReports.every((item) => item.status !== 'open')) showHistory = true;
       }
       onmutated(localReports);
     } catch {
@@ -107,7 +117,7 @@
       <p class="eyebrow">Feedback</p>
       <h2>{caseTitle}</h2>
       <p class="drawer-subtitle">{visibleReports().length} report{visibleReports().length === 1 ? '' : 's'} · {caseIsActive ? 'Active Case' : 'History'}</p>
-      {#if historyCount() > 0}<button class="history-button" type="button" onclick={() => (showHistory = !showHistory)}>{showHistory ? 'Hide history' : 'View history'}</button>{/if}
+      {#if historyCount() > 0}<button class="history-button" type="button" onclick={() => (showHistory = !showHistory)}>{showHistory ? 'Hide previous reports' : 'Show previous reports'}</button>{/if}
     </div>
     <button class="close-button" type="button" aria-label="Close Feedback" onclick={onclose}>×</button>
   </div>
@@ -116,13 +126,14 @@
 
   <div class="drawer-reports">
     {#if visibleReports().length === 0}
-      <p class="muted">No reports in this Case.</p>
+      <p class="muted">{localReports.length > 0 && !showHistory ? 'No open reports' : 'No reports in this Case.'}</p>
     {:else}
       {#each visibleReports() as report}
         <article class:origin-report={reportIsOrigin(report)} class="drawer-report">
           <div class="report-meta">
             <strong>{report.reporterLabel}</strong>
             <span class={'status-badge status-' + report.status}>{report.status}</span>
+            {#if reportIsOrigin(report)}<span class="origin-label">Selected report</span>{/if}
             <time datetime={new Date(report.reportedAt).toISOString()}>{formatFeedbackDate(report.reportedAt)}</time>
           </div>
           <p class="report-body">{report.body}</p>
@@ -133,7 +144,7 @@
             {:else}
               <button class="button" type="button" onclick={() => mutate(report, 'reopen')} disabled={mutatingId === report.id}>Reopen</button>
             {/if}
-            <button class="button danger" type="button" onclick={() => mutate(report, 'delete')} disabled={mutatingId === report.id}>Delete</button>
+            <span class="destructive-action"><button class="button danger" type="button" onclick={() => mutate(report, 'delete')} disabled={mutatingId === report.id}>Delete</button></span>
           </div>
         </article>
       {/each}
@@ -151,6 +162,8 @@
   .drawer-reports { overflow:auto; padding:1rem; } .drawer-report { display:grid; gap:.65rem; padding:.85rem 0; border-bottom:1px solid #eaecf0; } .drawer-report:first-child { padding-top:0; } .drawer-report:last-child { border-bottom:0; }
   .drawer-report.origin-report { margin:.2rem -.5rem; padding:.85rem .5rem; border:2px solid #84adff; border-radius:8px; }
   .report-meta, .report-actions { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; } .report-meta { color:#667085; font-size:.78rem; } .report-meta strong { color:#344054; }
+  .origin-label { padding:.16rem .4rem; border-radius:999px; background:#eef4ff; color:#175cd3; font-size:.7rem; font-weight:700; }
+  .destructive-action { margin-left:auto; padding-left:.7rem; border-left:1px solid #eaecf0; }
   .report-body { margin:0; white-space:pre-wrap; line-height:1.5; } .status-badge { padding:.16rem .4rem; border-radius:999px; font-size:.7rem; font-weight:750; text-transform:capitalize; } .status-open { background:#ecfdf3; color:#027a48; } .status-resolved { background:#eff8ff; color:#175cd3; } .status-dismissed { background:#f2f4f7; color:#667085; }
   .button { padding:.55rem .7rem; border:1px solid #cdd6e3; border-radius:7px; background:#fff; color:#172033; cursor:pointer; font:inherit; font-size:.82rem; } .button.danger { border-color:#fecdca; color:#b42318; } button:disabled { cursor:default; opacity:.55; } .action-error { margin:1rem; color:#b42318; font-size:.85rem; }
   .muted { color:#667085; } a:focus-visible, button:focus-visible { outline:3px solid #84adff; outline-offset:2px; }

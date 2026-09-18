@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { stringify as devalueStringify } from 'devalue';
 
 const REPORT = {
   id: 'feedback-browser-report',
@@ -9,10 +10,10 @@ const REPORT = {
   body: 'The browser-visible report should stay until confirmed.'
 };
 
-async function mountDrawer(page) {
+async function mountDrawer(page, { reports = [REPORT], actionResult = '[{"ok":1,"report":2},true,null]' } = {}) {
   await page.goto('/');
   await page.setContent('<main id="drawer-host"></main>');
-  await page.evaluate(() => {
+  await page.evaluate((actionResult) => {
     window.__drawerConfirm = false;
     window.__drawerDeleteRequests = [];
     window.__drawerMutations = [];
@@ -26,10 +27,10 @@ async function mountDrawer(page) {
       });
       return {
         // SvelteKit action data is devalue-encoded before deserialize() parses it.
-        text: async () => JSON.stringify({ type: 'success', status: 200, data: '[{"ok":1,"report":2},true,null]' })
+        text: async () => JSON.stringify({ type: 'success', status: 200, data: actionResult })
       };
     };
-  });
+  }, actionResult);
 
   await page.addScriptTag({
     type: 'module',
@@ -44,7 +45,7 @@ async function mountDrawer(page) {
         window.__drawer = mount(LearnerFeedbackDrawer, {
           target: document.querySelector('#drawer-host'),
           props: {
-            reports: ${JSON.stringify([REPORT])},
+            reports: ${JSON.stringify(reports)},
             caseId: 'case-browser',
             caseTitle: 'Browser Case',
             returnQuery: 'status=open&query=browser',
@@ -93,4 +94,17 @@ test('drawer cancellation and confirmed delete stay on the focused local mutatio
   await expect.poll(() => page.evaluate(() => window.__drawerMutations)).toEqual([[]]);
   expect(page.url()).toBe(initialUrl);
   expect(navigationEvents).toEqual([]);
+});
+
+test('resolving the final open report keeps it visible in previous reports', async ({ page }) => {
+  const resolvedReport = { ...REPORT, status: 'resolved', reviewedAt: 1_700_000_000_100 };
+  await mountDrawer(page, { actionResult: devalueStringify({ ok: true, report: resolvedReport }) });
+
+  await page.getByRole('button', { name: 'Resolve' }).click();
+
+  await expect(page.getByText(REPORT.body)).toBeVisible();
+  await expect(page.getByText('resolved', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hide previous reports' })).toBeVisible();
+  await expect(page.getByText('No open reports')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__drawerMutations.at(-1)?.[0]?.status)).toBe('resolved');
 });
