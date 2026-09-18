@@ -36,6 +36,7 @@
   let editorLayout = $state('compact');
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
+  /** @type {any[]} */
   let feedbackReports = $state(data.feedback?.reports ?? []);
   let feedbackOpen = $state(Boolean(data.feedback?.autoOpen));
   $effect(() => {
@@ -44,10 +45,10 @@
     feedbackOpen = Boolean(data.feedback?.autoOpen);
   });
   let feedbackSummary = $derived({
-    openCount: feedbackReports.filter((report) => report.status === 'open').length,
+    openCount: feedbackReports.filter((/** @type {any} */ report) => report.status === 'open').length,
     historyCount: feedbackReports.length
   });
-  function updateFeedbackReports(reports) {
+  function updateFeedbackReports(/** @type {any[]} */ reports) {
     feedbackReports = reports;
   }
   const draftCoordinator = createCaseEditorCoordinator();

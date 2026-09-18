@@ -51,6 +51,6 @@ export const actions = {
       if (feedbackReturnQuery) feedbackQuery.set('feedback_return', feedbackReturnQuery);
       redirect(303, '/admin/cases/' + encodeURIComponent(caseId) + '?' + feedbackQuery.toString());
     }
-    redirect(303, \`/admin/cases/\${encodeURIComponent(caseId)}?status=case-restored\${returnQuery ? \`&return_query=\${encodeURIComponent(returnQuery)}\` : ''}\`);
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=case-restored${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`);
   }
 };

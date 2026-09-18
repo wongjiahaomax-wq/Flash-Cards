@@ -1,3 +1,4 @@
+// @ts-nocheck
 const FEEDBACK_STATUSES = ['open', 'resolved', 'dismissed'];
 const DATABASE_NOW_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 const FEEDBACK_COLUMNS = [

@@ -120,6 +120,7 @@
     feedbackError = '';
   }
 
+  /** @param {SubmitEvent} event */
   async function submitFeedback(event) {
     event.preventDefault();
     if (submittingFeedback) return;
@@ -133,7 +134,7 @@
         headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
         body: formData
       });
-      const result = deserialize(await response.text());
+      const result = /** @type {any} */ (deserialize(await response.text()));
       if (result.type === 'failure') {
         feedbackError = result.data?.error ?? 'Unable to submit feedback right now.';
         return;

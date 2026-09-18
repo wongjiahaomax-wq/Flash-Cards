@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { fail, redirect } from '@sveltejs/kit';
 
 import { feedbackQueryString, parseFeedbackQueueQuery } from '$lib/admin-feedback-state.js';

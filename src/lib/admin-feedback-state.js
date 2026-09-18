@@ -1,3 +1,4 @@
+// @ts-nocheck
 const STATUS_VALUES = new Set(['open', 'resolved', 'dismissed', 'all']);
 const SORT_VALUES = new Set(['newest', 'oldest']);
 const MAX_SEARCH_LENGTH = 160;

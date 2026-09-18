@@ -36,6 +36,7 @@ function editorRedirect(caseId, status, request, formData, hash = '') {
 }
 /** @param {boolean} [open] @param {string} [search] */
 function emptyImagePicker(open = false, search = '') { return { open, search, assets: [], hasMore: false, limit: 60, targetGroupId: null, targetGroupName: null }; }
+/** @param {boolean} [autoOpen] @param {string | null} [originFeedbackId] @param {string} [returnQuery] */
 function emptyFeedback(autoOpen = false, originFeedbackId = null, returnQuery = '') { return { reports: [], openCount: 0, historyCount: 0, autoOpen, originFeedbackId, returnQuery }; }
 /** @param {unknown} errorValue */
 function reusableQuestionActionError(errorValue) { const clientError = errorValue instanceof AssetQuestionInputError; if (!clientError) console.error('Case reusable image question action failed.', errorValue); return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to update the reusable image question.' }); }
@@ -86,7 +87,7 @@ export async function load({ locals, platform, params, url }) {
     imagePicker: { open: pickerOpen, ...pickerResults, selectedAssetIds: pickerSelectedAssetIds, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null },
     feedback: {
       reports: feedbackReports,
-      openCount: feedbackReports.filter((report) => report.status === 'open').length,
+      openCount: feedbackReports.filter((/** @type {any} */ report) => report.status === 'open').length,
       historyCount: feedbackReports.length,
       autoOpen: feedbackRequested,
       originFeedbackId: feedbackId || null,

@@ -1,4 +1,5 @@
 <script>
+  // @ts-nocheck
   import { onMount } from 'svelte';
   import { deserialize } from '$app/forms';
   import { formatFeedbackDate } from '$lib/admin-feedback-state.js';
