@@ -131,12 +131,17 @@
     reportDialog = true;
   }
 
-  function closeFeedback() {
-    if (submittingFeedback) return;
+  /** @param {{ force?: boolean } | undefined} [options] */
+  function closeFeedback(options) {
+    if (submittingFeedback && options?.force !== true) return;
     if (feedbackDialog?.open) feedbackDialog.close();
     reportDialog = false;
     feedbackError = '';
     requestAnimationFrame(() => feedbackTrigger?.focus());
+  }
+
+  function handleFeedbackClose() {
+    closeFeedback();
   }
 
   /** @param {Event} event */
@@ -177,7 +182,7 @@
         feedbackError = 'Unable to submit feedback right now. Please try again.';
         return;
       }
-      closeFeedback();
+      closeFeedback({ force: true });
       feedbackBody = '';
       feedbackNotice = 'Thanks — your feedback was submitted.';
     } catch {
@@ -228,7 +233,7 @@
           <textarea bind:this={feedbackTextarea} id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback}></textarea>
           {#if feedbackError}<p class="action-error" role="alert">{feedbackError}</p>{/if}
           <div class="dialog-actions">
-            <button class="button" type="button" onclick={closeFeedback} disabled={submittingFeedback}>Cancel</button>
+            <button class="button" type="button" onclick={handleFeedbackClose} disabled={submittingFeedback}>Cancel</button>
             <button class="button primary" type="submit" disabled={submittingFeedback}>{submittingFeedback ? 'Submitting…' : 'Submit'}</button>
           </div>
         </form>
