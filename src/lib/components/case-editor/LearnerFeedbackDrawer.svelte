@@ -16,7 +16,10 @@
   } = $props();
 
   let localReports = $state(reports);
-  let showHistory = $state(localReports.every((report) => report.status !== 'open'));
+  let showHistory = $state(
+    localReports.every((report) => report.status !== 'open')
+      || localReports.some((report) => report.id === originFeedbackId && report.status !== 'open')
+  );
   let drawerStyle = $state('');
   let actionError = $state('');
   let mutatingId = $state('');

@@ -10,7 +10,7 @@ const REPORT = {
   body: 'The browser-visible report should stay until confirmed.'
 };
 
-async function mountDrawer(page, { reports = [REPORT], actionResult = '[{"ok":1,"report":2},true,null]' } = {}) {
+async function mountDrawer(page, { reports = [REPORT], originFeedbackId = null, actionResult = '[{"ok":1,"report":2},true,null]' } = {}) {
   await page.goto('/');
   await page.setContent('<main id="drawer-host"></main>');
   await page.evaluate((actionResult) => {
@@ -48,6 +48,7 @@ async function mountDrawer(page, { reports = [REPORT], actionResult = '[{"ok":1,
             reports: ${JSON.stringify(reports)},
             caseId: 'case-browser',
             caseTitle: 'Browser Case',
+            originFeedbackId: ${JSON.stringify(originFeedbackId)},
             returnQuery: 'status=open&query=browser',
             onmutated: (reports) => window.__drawerMutations.push(reports)
           }
@@ -107,4 +108,20 @@ test('resolving the final open report keeps it visible in previous reports', asy
   await expect(page.getByRole('button', { name: 'Hide previous reports' })).toBeVisible();
   await expect(page.getByText('No open reports')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__drawerMutations.at(-1)?.[0]?.status)).toBe('resolved');
+});
+
+test('a resolved originating report is visible and selected alongside open reports', async ({ page }) => {
+  const resolvedReport = {
+    ...REPORT,
+    id: 'feedback-browser-resolved-origin',
+    status: 'resolved',
+    body: 'The originating resolved report should remain visible.',
+    reviewedAt: 1_700_000_000_100
+  };
+  await mountDrawer(page, { reports: [REPORT, resolvedReport], originFeedbackId: resolvedReport.id });
+
+  await expect(page.getByText(resolvedReport.body)).toBeVisible();
+  await expect(page.getByText('Selected report')).toBeVisible();
+  await expect(page.getByText('resolved', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hide previous reports' })).toBeVisible();
 });
