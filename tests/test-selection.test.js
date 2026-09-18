@@ -1,11 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runFastNodeTests } from '../scripts/test-fast.mjs';
+import { isDirectInvocation, runFastNodeTests } from '../scripts/test-fast.mjs';
 import {
   FAST_TEST_EXCLUSIONS,
   discoverMaintainedNodeTests,
@@ -128,14 +127,10 @@ test('fast runner refuses an empty selection instead of falling back to implicit
 });
 
 test('test-fast tooling stays inert when Node executes it as a test child', () => {
-  const result = spawnSync(process.execPath, [path.join(repositoryRoot, 'scripts', 'test-fast.mjs')], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' },
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.stdout, '');
-  assert.equal(result.stderr, '');
+  assert.equal(isDirectInvocation({
+    argv1: path.join(repositoryRoot, 'scripts', 'test-fast.mjs'),
+    nodeTestContext: 'child-v8',
+  }), false);
 });
 
 test('fast selection fails loudly when an exclusion is missing', () => {

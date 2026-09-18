@@ -1,6 +1,4 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ciTestReporter, {
@@ -116,42 +114,20 @@ test('fast Node diagnostics preserve their validation-check identity and repro c
   assert.match(output, /CI_STATUS\|check=testFast\|status=failed\|failed=1/);
 });
 
-test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
-  const fixture = path.join(process.cwd(), 'tests', `.ci-reporter-nested-${process.pid}-${Date.now()}.test.mjs`);
-  try {
-    fs.writeFileSync(fixture, [
-      "import { describe, it } from 'node:test';",
-      "import assert from 'node:assert/strict';",
-      "describe('outer suite', () => {",
-      "  it('nested failure', () => assert.equal(1, 2));",
-      '});',
-      '',
-    ].join('\n'));
+test('nested node:test failures emit one real failure instead of a duplicate suite failure', async () => {
+  const failure = failureData();
+  failure.name = 'nested failure';
+  const output = await collect([
+    { type: 'test:fail', data: { name: 'outer suite', details: { type: 'suite', error: new Error('nested failure') } } },
+    { type: 'test:fail', data: failure },
+    { type: 'test:summary', data: { success: false, counts: { tests: 1, passed: 0, failed: 1, skipped: 0, todo: 0, cancelled: 0 }, duration_ms: 10 } },
+  ]);
 
-    const childEnv = { ...process.env };
-    delete childEnv.NODE_TEST_CONTEXT;
-    delete childEnv.CI_NODE_TEST_CHECK_ID;
-    delete childEnv.CI_NODE_TEST_REPRO_COMMAND;
-    const result = spawnSync(process.execPath, [
-      '--test',
-      `--test-reporter=${CI_TEST_REPORTER}`,
-      fixture,
-    ], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      env: childEnv,
-    });
-
-    assert.equal(result.status, 1, result.stderr || result.stdout);
-    const output = String(result.stdout ?? '');
-    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
-    assert.equal((output.match(/^CI_ERROR\|/gm) ?? []).length, 1);
-    assert.match(output, /CI_ERROR\|check=test\|.*name=nested failure/);
-    assert.equal(output.includes('name=outer suite'), false);
-    assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
-  } finally {
-    fs.rmSync(fixture, { force: true });
-  }
+  assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
+  assert.equal((output.match(/^CI_ERROR\|/gm) ?? []).length, 1);
+  assert.match(output, /CI_ERROR\|check=test\|.*name=nested failure/);
+  assert.equal(output.includes('name=outer suite'), false);
+  assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
 });
 
 test('failure formatting unwraps Node test errors and keeps assertion details', () => {

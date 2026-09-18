@@ -51,9 +51,11 @@ export async function runFastNodeTests(options = {}) {
   return Number.isInteger(result.status) ? result.status : 1;
 }
 
-const invokedDirectly = !process.env.NODE_TEST_CONTEXT
-  && process.argv[1]
-  && import.meta.url === pathToFileURL(process.argv[1]).href;
+export function isDirectInvocation({ argv1 = process.argv[1], nodeTestContext = process.env.NODE_TEST_CONTEXT } = {}) {
+  return !nodeTestContext && argv1 && import.meta.url === pathToFileURL(argv1).href;
+}
+
+const invokedDirectly = isDirectInvocation();
 if (invokedDirectly) {
   try {
     process.exitCode = await runFastNodeTests();

@@ -282,31 +282,32 @@ export function prepareSource(options) {
   });
 }
 
-function printSummary(result) {
-  console.log(`Source: ${result.sourcePath}`);
-  console.log(`Type: ${result.type}`);
-  console.log(`Slides/pages: ${result.pageCount}`);
-  console.log(`Rendered PDF: ${result.renderedPdfPath ?? 'not applicable'}`);
-  console.log(`Index: ${result.indexPath}`);
-  console.log(`Source map: ${result.sourceMapPath}`);
-  console.log(`Chunks: ${result.chunks.length}`);
-  console.log(`Warnings: ${result.warnings.length}`);
-  console.log(`Output directory: ${result.outputDir}`);
+function printSummary(result, writeLine = line => console.log(line)) {
+  writeLine(`Source: ${result.sourcePath}`);
+  writeLine(`Type: ${result.type}`);
+  writeLine(`Slides/pages: ${result.pageCount}`);
+  writeLine(`Rendered PDF: ${result.renderedPdfPath ?? 'not applicable'}`);
+  writeLine(`Index: ${result.indexPath}`);
+  writeLine(`Source map: ${result.sourceMapPath}`);
+  writeLine(`Chunks: ${result.chunks.length}`);
+  writeLine(`Warnings: ${result.warnings.length}`);
+  writeLine(`Output directory: ${result.outputDir}`);
+}
+
+export function runCli(argv, { writeStdout = value => process.stdout.write(String(value)), writeStderr = value => process.stderr.write(String(value)) } = {}) {
+  try {
+    const options = parseArgs(argv);
+    if (options.help) {
+      writeStdout(usage());
+    } else {
+      printSummary(prepareSource(options), line => writeStdout(`${line}\n`));
+    }
+    return 0;
+  } catch (error) {
+    writeStderr(`${formatFailure(error)}\n\n${usage().trimEnd()}`);
+    return 1;
+  }
 }
 
 const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) {
-  try {
-    const options = parseArgs(process.argv.slice(2));
-    if (options.help) {
-      process.stdout.write(usage());
-    } else {
-      printSummary(prepareSource(options));
-    }
-  } catch (error) {
-    console.error(formatFailure(error));
-    console.error('');
-    console.error(usage().trimEnd());
-    process.exitCode = 1;
-  }
-}
+if (invokedDirectly) process.exitCode = runCli(process.argv.slice(2));
