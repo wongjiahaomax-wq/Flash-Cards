@@ -27,9 +27,14 @@ test('Production Admin feedback keeps Preview and editor boundaries explicit', (
   const editor = source('src/routes/admin/cases/[caseId]/+page.svelte');
   const preview = source('src/routes/preview-admin/cases/[caseId]/+page.svelte');
   const layout = source('src/routes/admin/+layout.svelte');
+  const drawer = source('src/lib/components/case-editor/LearnerFeedbackDrawer.svelte');
   assert.match(queue, /canManageCaseAssets/);
   assert.match(queue, /bulkDelete/);
   assert.match(layout, /href="\/admin\/feedback">Feedback/);
+  assert.match(drawer, /action === 'delete' && !window\.confirm/);
+  assert.match(drawer, /formData\.set\('confirm', 'DELETE'\)/);
+  assert.ok(drawer.indexOf("action === 'delete' && !window.confirm") < drawer.indexOf("formData.set('confirm', 'DELETE')"));
+  assert.match(drawer, /fetch\('\/admin\/feedback\?\/' \+ action/);
   assert.match(editor, /!data\.previewMode && feedbackOpen/);
   assert.match(editor, /LearnerFeedbackDrawer/);
   assert.doesNotMatch(preview, /LearnerFeedbackDrawer/);

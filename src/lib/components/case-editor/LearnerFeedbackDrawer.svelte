@@ -53,12 +53,14 @@
 
   async function mutate(report, action) {
     if (mutatingId) return;
+    if (action === 'delete' && !window.confirm('Delete this feedback report permanently? This cannot be undone.')) return;
     mutatingId = report.id;
     actionError = '';
     const formData = new URLSearchParams();
     formData.set('feedback_id', report.id);
     formData.set('drawer', '1');
     formData.set('return_query', returnQuery);
+    if (action === 'delete') formData.set('confirm', 'DELETE');
     try {
       const response = await fetch('/admin/feedback?/' + action, {
         method: 'POST',
