@@ -416,6 +416,14 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId, option
       stimulusGroups: groups,
       previewCopy: true
     },
+    feedback: {
+      reports: [],
+      openCount: 0,
+      historyCount: 0,
+      autoOpen: false,
+      originFeedbackId: null,
+      returnQuery: ''
+    },
     imagePicker: {
       open: Boolean(options.imagePickerOpen),
       ...pickerResults,
