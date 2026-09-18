@@ -7,6 +7,7 @@
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
+  import LearnerFeedbackDrawer from '$lib/components/case-editor/LearnerFeedbackDrawer.svelte';
   import CaseQuestionAudit from '$lib/components/CaseQuestionAudit.svelte';
   import CaseDetailsSection from '$lib/components/case-editor/CaseDetailsSection.svelte';
   import CaseEditorHeader from '$lib/components/case-editor/CaseEditorHeader.svelte';
@@ -35,6 +36,22 @@
   let editorLayout = $state('compact');
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
+  /** @type {any[]} */
+  let feedbackReports = $state(data.feedback?.reports ?? []);
+  let feedbackOpen = $state(Boolean(data.feedback?.autoOpen));
+  $effect(() => {
+    const next = data.feedback?.reports;
+    if (next) feedbackReports = next;
+    feedbackOpen = Boolean(data.feedback?.autoOpen);
+  });
+  let feedbackSummary = $derived({
+    openCount: feedbackReports.filter((/** @type {any} */ report) => report.status === 'open').length,
+    historyCount: feedbackReports.length
+  });
+  /** @param {any[]} reports */
+  function updateFeedbackReports(reports) {
+    feedbackReports = reports;
+  }
   const draftCoordinator = createCaseEditorCoordinator();
   let draftRevision = $state(0);
   let suppressNextBeforeUnload = false;
@@ -171,7 +188,7 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} feedback={feedbackSummary} feedbackReturnQuery={data.feedback?.autoOpen ? data.feedback.returnQuery : ''} onfeedbackopen={() => (feedbackOpen = !feedbackOpen)} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
@@ -198,6 +215,18 @@
   </div>
 
   <AdminImageViewer image={viewerImage} onclose={() => (viewerImage = null)} />
+  {#if !data.previewMode && feedbackOpen}
+    <LearnerFeedbackDrawer
+      reports={feedbackReports}
+      caseId={selectedCase.case.id}
+      caseTitle={selectedCase.case.title}
+      caseIsActive={true}
+      originFeedbackId={data.feedback?.originFeedbackId}
+      returnQuery={data.feedback?.returnQuery}
+      onclose={() => (feedbackOpen = false)}
+      onmutated={updateFeedbackReports}
+    />
+  {/if}
 {/if}
 
 <style>

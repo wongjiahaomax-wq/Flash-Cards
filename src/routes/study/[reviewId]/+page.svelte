@@ -1,5 +1,6 @@
 <script>
   import { goto } from '$app/navigation';
+  import { deserialize } from '$app/forms';
   import { onMount } from 'svelte';
 
   import {
@@ -18,6 +19,26 @@
   let completionError = $state('');
   let completing = $state(false);
   let storageRecovery = $state(false);
+  let reportDialog = $state(false);
+  let feedbackBody = $state('');
+  let feedbackError = $state('');
+  let feedbackNotice = $state('');
+  let submittingFeedback = $state(false);
+  /** @type {HTMLDialogElement | undefined} */
+  let feedbackDialog = $state();
+  /** @type {HTMLTextAreaElement | undefined} */
+  let feedbackTextarea = $state();
+  /** @type {HTMLButtonElement | undefined} */
+  let feedbackTrigger = $state();
+
+  $effect(() => {
+    if (reportDialog && feedbackDialog && !feedbackDialog.open) {
+      feedbackDialog.showModal();
+      requestAnimationFrame(() => feedbackTextarea?.focus());
+    } else if (!reportDialog && feedbackDialog?.open) {
+      feedbackDialog.close();
+    }
+  });
 
   onMount(() => {
     browserRun = readLearnerStudyRun(localStorage);
@@ -101,6 +122,75 @@
       completing = false;
     }
   }
+
+  /** @param {MouseEvent} event */
+  function openFeedback(event) {
+    feedbackTrigger = /** @type {HTMLButtonElement} */ (event.currentTarget);
+    feedbackError = '';
+    feedbackNotice = '';
+    reportDialog = true;
+  }
+
+  /** @param {{ force?: boolean } | undefined} [options] */
+  function closeFeedback(options) {
+    if (submittingFeedback && options?.force !== true) return;
+    if (feedbackDialog?.open) feedbackDialog.close();
+    reportDialog = false;
+    feedbackError = '';
+    requestAnimationFrame(() => feedbackTrigger?.focus());
+  }
+
+  function handleFeedbackClose() {
+    closeFeedback();
+  }
+
+  /** @param {Event} event */
+  function handleFeedbackCancel(event) {
+    if (submittingFeedback) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    closeFeedback();
+  }
+
+  /** @param {MouseEvent} event */
+  function handleFeedbackBackdrop(event) {
+    if (event.target === feedbackDialog) closeFeedback();
+  }
+
+  /** @param {SubmitEvent} event */
+  async function submitFeedback(event) {
+    event.preventDefault();
+    if (submittingFeedback) return;
+    submittingFeedback = true;
+    feedbackError = '';
+    feedbackNotice = '';
+    try {
+      const formData = new FormData(/** @type {HTMLFormElement} */ (event.currentTarget));
+      const response = await fetch('?/submitFeedback', {
+        method: 'POST',
+        headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+        body: formData
+      });
+      const result = /** @type {any} */ (deserialize(await response.text()));
+      if (result.type === 'failure') {
+        feedbackError = result.data?.error ?? 'Unable to submit feedback right now.';
+        return;
+      }
+      if (result.type === 'error') {
+        feedbackError = 'Unable to submit feedback right now. Please try again.';
+        return;
+      }
+      closeFeedback({ force: true });
+      feedbackBody = '';
+      feedbackNotice = 'Thanks — your feedback was submitted.';
+    } catch {
+      feedbackError = 'Unable to submit feedback right now. Please try again.';
+    } finally {
+      submittingFeedback = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -110,7 +200,11 @@
 <main class="shell review-shell">
   <nav class="review-nav" aria-label="Study navigation">
     <a href="/study">← Back to Study</a>
-    <span class="muted">Review in progress</span>
+    <div class="review-nav-status">
+      <span class="muted">Review in progress</span>
+      <span class="review-nav-divider" aria-hidden="true"></span>
+      <button class="feedback-link" type="button" onclick={openFeedback}>Report an issue</button>
+    </div>
   </nav>
 
   <header class="case-header">
@@ -124,6 +218,27 @@
 
   {#if storageRecovery}
     <p class="recovery-notice" role="status">This Review is saved. Browser storage is unavailable, so you can finish it here. You may need to start a new Study session afterward.</p>
+  {/if}
+
+  {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
+
+  {#if reportDialog}
+    <dialog bind:this={feedbackDialog} class="feedback-dialog" aria-labelledby="feedback-dialog-title" oncancel={handleFeedbackCancel} onclick={handleFeedbackBackdrop}>
+      <div class="feedback-dialog-content">
+        <p class="eyebrow">Case feedback</p>
+        <h2 id="feedback-dialog-title">Report an issue</h2>
+        <p class="muted">Tell us if something in this case seems incorrect or unclear. If relevant, mention the question or image you're referring to.</p>
+        <form onsubmit={submitFeedback}>
+          <label for="feedback-body">What should we review?</label>
+          <textarea bind:this={feedbackTextarea} id="feedback-body" name="feedback_body" bind:value={feedbackBody} disabled={submittingFeedback}></textarea>
+          {#if feedbackError}<p class="action-error" role="alert">{feedbackError}</p>{/if}
+          <div class="dialog-actions">
+            <button class="button" type="button" onclick={handleFeedbackClose} disabled={submittingFeedback}>Cancel</button>
+            <button class="button primary" type="submit" disabled={submittingFeedback}>{submittingFeedback ? 'Submitting…' : 'Submit'}</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
   {/if}
 
   {#if data.review.assets.length > 0}
@@ -210,8 +325,12 @@
 
 <style>
   .review-shell { display:grid; gap:1.5rem; max-width:920px; }
-  .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-size:.9rem; }
+  .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.9rem; }
   .review-nav a { text-decoration:none; } .review-nav a:hover,.review-nav a:focus-visible { text-decoration:underline; }
+  .review-nav-status { display:flex; align-items:center; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
+  .review-nav-divider { width:1px; height:1.1rem; background:#d0d5dd; }
+  .feedback-link { padding:0; border:0; background:transparent; color:#175cd3; cursor:pointer; font:inherit; }
+  .feedback-link:hover { text-decoration:underline; text-underline-offset:.15em; }
   .case-header { display:grid; gap:.75rem; padding-bottom:.5rem; }
   .case-header h1,.case-header p { margin:0; }
   .case-header h1 { font-size:clamp(1.8rem,4vw,2.5rem); line-height:1.12; }
@@ -219,6 +338,15 @@
   .case-meta { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:#667085; font-size:.9rem; font-weight:600; }
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
   .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
+  .feedback-notice { margin:0; color:#027a48; font-size:.9rem; }
+  .feedback-dialog { width:min(100% - 2rem, 520px); max-height:calc(100vh - 2rem); margin:auto; padding:0; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }
+  .feedback-dialog::backdrop { background:rgba(23,32,51,.35); }
+  .feedback-dialog-content { padding:1.25rem; }
+  .feedback-dialog h2 { margin:.15rem 0 .4rem; }
+  .feedback-dialog form { display:grid; gap:.65rem; }
+  .feedback-dialog label { font-weight:650; }
+  .feedback-dialog textarea { min-height:9rem; resize:vertical; padding:.7rem; border:1px solid #98a2b3; border-radius:8px; font:inherit; line-height:1.5; }
+  .dialog-actions { display:flex; justify-content:flex-end; gap:.55rem; }
   .review-section { display:grid; gap:1rem; }
   .section-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .section-heading h2 { margin:.15rem 0 0; }

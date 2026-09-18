@@ -362,6 +362,33 @@ export const stimulusOptionAssetQuestions = sqliteTable(
   ]
 );
 
+export const learnerFeedback = sqliteTable(
+  'learner_feedback',
+  {
+    id: text('id').primaryKey(),
+    caseId: text('case_id').notNull().references(() => cases.id, { onDelete: 'restrict' }),
+    userId: text('user_id').notNull(),
+    reporterLabelSnapshot: text('reporter_label_snapshot').notNull(),
+    caseTitleSnapshot: text('case_title_snapshot').notNull(),
+    body: text('body').notNull(),
+    status: text('status', { enum: ['open', 'resolved', 'dismissed'] }).notNull().default('open'),
+    reportedAt: timestamp('reported_at'),
+    reviewedAt: integer('reviewed_at', { mode: 'timestamp_ms' }),
+    reviewedBy: text('reviewed_by')
+  },
+  (table) => [
+    index('learner_feedback_status_reported_idx').on(table.status, table.reportedAt, table.id),
+    index('learner_feedback_case_status_reported_idx').on(table.caseId, table.status, table.reportedAt, table.id),
+    index('learner_feedback_user_reported_idx').on(table.userId, table.reportedAt, table.id),
+    check('learner_feedback_status_check', sql`status in ('open', 'resolved', 'dismissed')`),
+    check(
+      'learner_feedback_review_metadata_check',
+      sql`(status = 'open' and reviewed_at is null and reviewed_by is null) or (status in ('resolved', 'dismissed') and reviewed_at is not null and reviewed_by is not null)`
+    )
+  ]
+);
+
+
 // Legacy `reviews`, `review_questions`, and `review_assets` remain physical
 // migration/history tables only. Current application code intentionally has no
 // Drizzle exports for them after the FSRS learner runtime cutover.

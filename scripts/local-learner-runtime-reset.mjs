@@ -11,6 +11,7 @@ export const LOCAL_LEARNER_RUNTIME_RESET_TABLES = Object.freeze([
   'free_review_completion_receipts',
   'active_review_questions',
   'active_review_assets',
+  'learner_feedback',
   'active_reviews',
   // Legacy learner Review tables remain physically present only as zero-data
   // cutover sentinels. Local destructive refreshes must clear stale pre-cutover

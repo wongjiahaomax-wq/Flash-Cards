@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { getActiveReviewById, revealActiveReview } from '$lib/server/db/active-reviews.js';
+import { createLearnerFeedback, LearnerFeedbackInputError } from '$lib/server/db/learner-feedback.ts';
 import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
 import {
   isStudyDataDeletionFenceError,
@@ -72,5 +73,29 @@ export const actions = {
       throw cause;
     }
     if (!review) error(404, 'Active Review not found or expired.');
+  },
+  submitFeedback: async ({ request, locals, params, platform }) => {
+    const { user, db } = context(locals, platform);
+    await requireStudyDataDeletionInactive(db, user.id);
+    const formData = await request.formData();
+    try {
+      const feedback = await createLearnerFeedback({
+        db,
+        userId: user.id,
+        reviewId: params.reviewId,
+        body: formData.get('feedback_body')
+      });
+      if (!feedback) {
+        return fail(409, { error: 'This Review is no longer available for feedback. Return to Study and open a current Review.' });
+      }
+      return { ok: true, feedbackId: feedback.id };
+    } catch (cause) {
+      if (cause instanceof LearnerFeedbackInputError) return fail(400, { error: cause.message });
+      if (String(cause).includes('LEARNER_FEEDBACK_ACCOUNT_DELETION')) {
+        return fail(409, { error: STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE });
+      }
+      console.error('Learner feedback submission failed.', cause);
+      return fail(500, { error: 'Unable to submit feedback right now. Please try again.' });
+    }
   }
 };

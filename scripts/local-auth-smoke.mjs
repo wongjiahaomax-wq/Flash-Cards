@@ -116,6 +116,9 @@ function startWorker(previewMode = false) {
     '127.0.0.1',
     '--port',
     '8787',
+    // Avoid Wrangler's inspector-port discovery, which enumerates host interfaces.
+    '--inspector-port',
+    '9229',
     '--persist-to',
     stateDir,
     '--var',

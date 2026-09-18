@@ -1,18 +1,21 @@
 <script>
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
+  import { feedbackQueueHref } from '$lib/admin-feedback-state.js';
   let { data, form } = $props();
   let recovery = $derived(data.recoveryCase);
   let returnToInactive = $derived(!data.caseLibraryReturnQuery || new URLSearchParams(data.caseLibraryReturnQuery).get('lifecycle') === 'inactive');
+  let openedFromFeedback = $derived(Boolean(data.feedback?.requested && data.feedback?.id));
 </script>
 
 <svelte:head><title>{recovery.case.title} | Inactive Case | Admin | Flash-Cards</title></svelte:head>
 
 <section class="page-heading">
   <div><p class="eyebrow">Case recovery</p><div class="title-line"><h1>{recovery.case.title}</h1><span class="status-badge">Inactive</span></div><p class="muted">This Production Case is preserved but unavailable to learners and normal active-Case editing.</p></div>
-  <a class="button" href={caseLibraryReturnHref(data.caseLibraryReturnQuery || 'lifecycle=inactive')}>{returnToInactive ? 'Back to Inactive Cases' : 'Back to Cases'}</a>
+  <a class="button" href={openedFromFeedback ? feedbackQueueHref(data.feedback.returnQuery) : caseLibraryReturnHref(data.caseLibraryReturnQuery || 'lifecycle=inactive')}>{openedFromFeedback ? 'Back to Feedback' : returnToInactive ? 'Back to Inactive Cases' : 'Back to Cases'}</a>
 </section>
 
 {#if data.status === 'case-deactivated'}<p class="success-message" role="status">Case deactivated. Its questions, images, Topics, Tags, and review history were retained.</p>{/if}
+{#if openedFromFeedback}<p class="feedback-context" role="status">Opened from Feedback. Restore this Case to continue in the Case Editor with the report drawer.</p>{/if}
 {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
 
 <section class="panel" aria-labelledby="recovery-context-heading">
@@ -31,6 +34,7 @@
   <form method="POST" action="?/restoreCase">
     <input type="hidden" name="case_id" value={recovery.case.id} />
     <input type="hidden" name="return_query" value={data.caseLibraryReturnQuery} />
+    {#if openedFromFeedback}<input type="hidden" name="feedback" value="1" /><input type="hidden" name="feedback_id" value={data.feedback.id} /><input type="hidden" name="feedback_return" value={data.feedback.returnQuery} />{/if}
     <button class="button primary" type="submit">Restore Case</button>
   </form>
 </section>
@@ -45,6 +49,7 @@
   .tag-list { display: flex; flex-wrap: wrap; gap: 0.35rem; } .tag-chip { padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.78rem; font-weight: 650; } .tag-chip.inactive-tag { background: #f2f4f7; color: #667085; } .warning { color: #b42318; font-weight: 700; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; } .button.primary { border-color: #172033; background: #172033; color: #fff; }
   .form-error, .success-message { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
+  .feedback-context { margin: 1rem 0; padding: .75rem; border-radius: 8px; background: #eff8ff; color: #175cd3; }
   a:focus-visible, button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
   @media (max-width: 680px) { .page-heading, .restore-panel { align-items: stretch; flex-direction: column; } dl > div { grid-template-columns: 1fr; gap: 0.25rem; } .restore-panel .button { width: 100%; } }
 </style>

@@ -120,6 +120,14 @@ export async function load({ parent, params, platform, url }) {
       selectedCase: null,
       previewMode: true,
       caseLibraryReturnQuery,
+      feedback: {
+        reports: [],
+        openCount: 0,
+        historyCount: 0,
+        autoOpen: false,
+        originFeedbackId: null,
+        returnQuery: ''
+      },
       workspaceBlocked: true
     };
   }
