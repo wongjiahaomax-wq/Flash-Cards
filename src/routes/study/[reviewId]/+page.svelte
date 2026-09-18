@@ -128,7 +128,7 @@
     feedbackError = '';
     feedbackNotice = '';
     try {
-      const formData = new FormData(event.currentTarget);
+      const formData = new FormData(/** @type {HTMLFormElement} */ (event.currentTarget));
       const response = await fetch('?/submitFeedback', {
         method: 'POST',
         headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
