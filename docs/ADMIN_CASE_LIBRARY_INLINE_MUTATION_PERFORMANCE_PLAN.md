@@ -39,8 +39,13 @@ row-local mutation
 → server validates and commits
 → response returns enough authoritative changed data
 → affected UI reconciles locally
-→ no blocking full-page invalidation
+→ done, with no Case Library reload when the current list remains authoritative
+
+only when current filter/sort/page composition requires server reconciliation
+→ trigger a non-blocking authoritative refresh
 ```
+
+For the common `select-topic` path on an ordinary Case Library view whose membership/order is unaffected by classification, the intended steady state is one POST plus one local row update and **no `invalidateAll()` at all**.
 
 At the same time, reduce avoidable D1 round trips in the classification write path without changing classification semantics or introducing new architecture.
 
@@ -65,7 +70,11 @@ The successful interaction must no longer wait for a full `invalidateAll()` befo
 
 The Case Library must immediately reflect whether the changed Case still belongs in the current filtered result set according to the active Topic/System filters. This must not be implemented as an `unassigned`-only special case. For example, under `system=unassigned`, assigning the Case to a Topic with a System ancestor must remove that Case from the visible list immediately; a representative named Topic or System filter must likewise gain/lose visible membership correctly when classification changes.
 
-After that immediate local reconciliation and editor completion, trigger a non-blocking authoritative Case Library refresh where needed to reconcile server-owned pagination totals, page backfill, ordering, selection cleanup, and selector state. Do not await that refresh on the save critical path, and failure of the background refresh must not convert the already-successful mutation into a save error or reopen the editor.
+Do **not** refresh the Case Library after `select-topic` when the current page remains authoritative after the local row update. This is the default/common path.
+
+Trigger a non-blocking authoritative Case Library refresh only when the mutation can change server-owned list composition or ordering that cannot be kept correct by the single-row update alone. Examples include an active Topic/System filter that changes row membership, Topic/System/Last-edited sorting that may reposition the row across the bounded page, or a local row removal that requires authoritative total-count/page-backfill reconciliation. Apply the immediate local membership correction first, then refresh in the background. Do not await that refresh on the save critical path, and failure of the background refresh must not convert the already-successful mutation into a save error or reopen the editor.
+
+For an ordinary unfiltered Case Library view sorted by Case title (or another sort unaffected by classification), update the matching row's canonical Topic/System and successfully written Last-edited value locally and stop there: no full Case Library reload.
 
 Use the smallest existing Svelte state/callback pattern that fits the current page. Do not add client pagination ownership, a client state library, or a generic mutation framework.
 
@@ -87,7 +96,9 @@ Inspect the current inline Case Tag mutation path and remove blocking whole-page
 
 Prioritize existing-Tag add/remove because those are unambiguously row-local. If a successful add/remove changes whether the Case matches the currently active Tag filter, update visible membership immediately rather than leaving the Case incorrectly visible/hidden until a later navigation.
 
-For operations that create global selectable metadata, such as creating a new Tag, use the simplest correct behavior. A targeted local update is acceptable if it can keep all visible option state authoritative without new architecture; otherwise retain an authoritative refresh outside the critical interaction path. As with classification, any authoritative refresh used after a successful row-local mutation must remain off the blocking save path.
+For existing-Tag add/remove, likewise do not refresh by default when the current page remains authoritative after the local row update. If the active Tag filter, Tag sort, row removal, pagination/backfill, or other server-owned list state is affected, apply the immediate local correction and then use a non-blocking authoritative refresh.
+
+For operations that create global selectable metadata, such as creating a new Tag, use the simplest correct behavior. A targeted local update is acceptable if it can keep all visible option state authoritative without new architecture; otherwise retain an authoritative refresh outside the critical interaction path.
 
 Do not expand this PR into a repository-wide elimination of `invalidateAll()`.
 
@@ -109,13 +120,13 @@ No production deployment or production D1 mutation is part of this PR.
 
 | Invariant | Required behavior | Required proof |
 | --- | --- | --- |
-| Classification no longer blocks on full Case Library reload | A successful `select-topic` closes/reconciles from the POST result without awaiting `invalidateAll()`; any authoritative refresh needed for totals/backfill/order/selector state runs afterward without becoming part of the save result | Focused executable UI/component behavior covering the real success path, including that refresh failure does not turn the successful save into an error |
-| Topic/System filter reconciliation is correct | The changed Case immediately remains/disappears according to the active Topic/System filters, not only the `unassigned` case | Focused executable Case Library proof for `system=unassigned` plus one representative named Topic or System filter; no exhaustive matrix required |
+| Common classification path performs no Case Library reload | A successful `select-topic` on an ordinary view whose membership/order is unaffected updates the row and closes from the POST result with no `invalidateAll()` call at all | Focused executable UI/component behavior proving the common path does not request a Case Library refresh |
+| Conditional authoritative reconciliation is correct | When Topic/System filtering, classification-sensitive sorting, row removal, or bounded-page composition requires server reconciliation, the immediate local correction occurs first and any authoritative refresh is non-blocking; refresh failure cannot convert the committed save into an error | Focused executable proof for `system=unassigned` plus one representative named Topic or System filter, and one conditional-refresh assertion; no exhaustive matrix required |
 | Server response is authoritative without broad reread | The POST authoritatively confirms the resulting canonical Topic; display metadata may reuse the bounded mutation result or existing page taxonomy metadata rather than a new complete-taxonomy read | Route/helper test plus UI behavior proof and the bounded-read proof below |
 | Classification semantics are preserved | Active Production Case, exactly one canonical Primary Topic, active target Topic, and legacy-secondary behavior remain correct | Existing/focused DB tests |
 | Timestamp remains best-effort | Timestamp-only failure cannot roll back or report failure for an already completed classification change | Existing/focused executable DB test |
 | Common classification read path is bounded | `promoteCaseTopic()` no longer loads the complete taxonomy merely to change one Case classification | Focused DB/read-path proof at the appropriate helper/query layer |
-| Row-local Tag edits avoid whole-page blocking reload | Existing-Tag add/remove updates the affected row without awaiting full Case Library invalidation, and immediately updates visible membership when the active Tag filter is affected | Focused executable inline Tag UI behavior proof plus one filtered-Tag membership proof |
+| Row-local Tag edits avoid unnecessary reloads | Existing-Tag add/remove updates the affected row with no full reload when the list remains authoritative; when active Tag filtering/sorting/page composition is affected, visible membership is corrected immediately and any authoritative refresh is non-blocking | Focused executable no-refresh inline Tag proof plus one filtered-Tag membership/conditional-refresh proof |
 | Global mutations remain correct | Shared taxonomy/global-option mutations still obtain authoritative page state where local reconciliation would be unsafe | Existing/focused tests for retained reload path |
 
 Static/source-regex checks may supplement these tests but must not be the only proof for interaction behavior.
@@ -150,7 +161,7 @@ classification POST ~2.22 s
 ≈ ~3.66 s perceived
 ```
 
-The first goal is therefore to reduce the interaction to the POST critical path. Bounded classification validation should then reduce additional D1 wait stages. Do not encode an exact production latency target as a test; production/network latency varies.
+The first goal is therefore to reduce the common interaction to the POST critical path **without issuing the follow-up Case Library reload at all**. Conditional background reconciliation remains available only where current filter/sort/page composition requires it. Bounded classification validation should then reduce additional D1 wait stages. Do not encode an exact production latency target as a test; production/network latency varies.
 
 ## Validation and handoff
 
