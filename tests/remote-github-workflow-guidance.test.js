@@ -154,6 +154,8 @@ test('Local Codex overlay narrows first-pass retrieval without changing final va
   assert.match(localCodexGuidance, /start from the directly affected symbol\/path/i);
   assert.match(localCodexGuidance, /smallest semantic unit needed/i);
   assert.match(localCodexGuidance, /Broaden only for a concrete unresolved dependency/i);
+  assert.match(localCodexGuidance, /implementation-ready PR plan or review handoff/i);
+  assert.match(localCodexGuidance, /starting retrieval map/i);
   assert.match(localCodexGuidance, /repository-owned compact reporters/i);
   assert.match(localCodexGuidance, /Bounded retrieval never means reduced final validation/i);
   assert.match(localCodexGuidance, /complete final intended-base-to-head review/i);
@@ -213,4 +215,19 @@ test('Local Codex recovery corrects oversized retrieval and avoids undersized pr
   assert.match(localCodexGuidance, /use a meaningful follow-up wait/i);
   assert.match(localCodexGuidance, /Never terminate, skip, or weaken validation to save context/i);
   assert.match(localCodexGuidance, /output plus exit status remain independently attributable/i);
+});
+
+test('Local Codex semantic batches reduce model-tool round trips while preserving evidence and review boundaries', () => {
+  assert.match(localCodexGuidance, /one behavioral invariant or one related common-cause correction/i);
+  assert.match(localCodexGuidance, /targeted retrieval batch/i);
+  assert.match(localCodexGuidance, /coherent production \+ regression-test patch/i);
+  assert.match(localCodexGuidance, /scoped diff inspection/i);
+  assert.match(localCodexGuidance, /focused test batch/i);
+  assert.match(localCodexGuidance, /Do not pause between already-known edits/i);
+  assert.match(localCodexGuidance, /shorter wall-clock implementation time/i);
+  assert.match(localCodexGuidance, /There is no fixed tool-call, patch-count, or token quota/i);
+  assert.match(localCodexGuidance, /prefer the local checkout for exact code discovery/i);
+  assert.match(localCodexGuidance, /PR\/base\/head metadata, review discussions, GitHub CI\/check state/i);
+  assert.match(localCodexGuidance, /If review findings are already supplied in the task prompt/i);
+  assert.match(localCodexGuidance, /Do not retrieve the original review thread merely to restate/i);
 });
