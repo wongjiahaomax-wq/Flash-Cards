@@ -1,11 +1,17 @@
 import { error } from '@sveltejs/kit';
 
+import { caseEditorHref, normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 import { createDb } from '$lib/server/db/index.js';
+import { ActiveReviewContentError } from '$lib/server/db/active-review-content.js';
 import {
   listSystemStudySelectionSystems,
   resolveSystemStudySelection
 } from '$lib/server/db/study-navigation.ts';
-import { buildAdminStudyPreview, buildDirectAdminStudyPreview } from '$lib/server/learning/admin-study-preview.js';
+import {
+  AdminStudyPreviewUnavailableError,
+  buildAdminStudyPreview,
+  buildDirectAdminStudyPreview
+} from '$lib/server/learning/admin-study-preview.js';
 
 /**
  * @param {{topics:{id:string}[],tags:{id:string}[]}} system
@@ -18,6 +24,11 @@ function allRoutes(system) {
   ];
 }
 
+/** @param {unknown} cause */
+function isExpectedDirectPreviewFailure(cause) {
+  return cause instanceof AdminStudyPreviewUnavailableError || cause instanceof ActiveReviewContentError;
+}
+
 export async function load({ platform, url }) {
   if (!platform?.env?.DB) error(503, 'Admin Study Preview database is not configured.');
   const db = createDb(platform.env.DB);
@@ -26,6 +37,7 @@ export async function load({ platform, url }) {
   const directMode = url.searchParams.get('mode') === 'direct';
 
   if (directMode) {
+    const directReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
     let preview = null;
     let directError = requestedCaseId ? null : 'Open this preview from a Production Case Editor so the exact Case can be resolved.';
     if (requestedCaseId) {
@@ -37,13 +49,16 @@ export async function load({ platform, url }) {
           rng: () => 0
         });
       } catch (cause) {
+        if (!isExpectedDirectPreviewFailure(cause)) throw cause;
         directError = cause instanceof Error ? cause.message : 'This Case cannot be previewed under the current learner-content rules.';
       }
     }
     return {
       directMode: true,
       directCaseId: requestedCaseId,
-      directBackHref: requestedCaseId ? `/admin/cases/${encodeURIComponent(requestedCaseId)}` : '/admin/cases',
+      directBackHref: requestedCaseId
+        ? caseEditorHref(`/admin/cases/${encodeURIComponent(requestedCaseId)}`, directReturnQuery)
+        : '/admin/cases',
       directError,
       preview,
       systems: [],

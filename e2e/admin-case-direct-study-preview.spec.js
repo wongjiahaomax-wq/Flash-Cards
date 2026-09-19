@@ -13,7 +13,11 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
   );
 
   const editorPath = caseEditorPath.startsWith('/') ? caseEditorPath : `/${caseEditorPath}`;
+  const editorUrl = new URL(editorPath, 'http://localhost');
+  const expectedCaseId = decodeURIComponent(editorUrl.pathname.split('/').filter(Boolean).at(-1));
+  const expectedReturnQuery = editorUrl.searchParams.get('return_query');
   await page.goto(`/sign-in?redirect=${encodeURIComponent(editorPath)}`);
+  await page.waitForLoadState('networkidle');
   await page.getByLabel('Email or beta username').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -23,6 +27,8 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
   await page.waitForURL('**/admin/study-preview?mode=direct&caseId=*');
   expect(new URL(page.url()).pathname).toBe('/admin/study-preview');
   expect(new URL(page.url()).searchParams.get('mode')).toBe('direct');
+  expect(new URL(page.url()).searchParams.get('caseId')).toBe(expectedCaseId);
+  expect(new URL(page.url()).searchParams.get('return_query')).toBe(expectedReturnQuery);
 
   await expect(page.getByRole('heading', { name: 'Case review', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reveal answers', exact: true })).toBeVisible();
@@ -48,5 +54,6 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
 
   await page.getByRole('link', { name: 'Back to Case Editor', exact: true }).last().click();
   await page.waitForURL(`**${editorPath}`);
+  expect(new URL(page.url()).searchParams.get('return_query')).toBe(expectedReturnQuery);
   await expect(page.getByRole('heading', { name: caseTitle, exact: true })).toBeVisible();
 });
