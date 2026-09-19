@@ -27,8 +27,11 @@
   let editorBase = $derived(data.previewMode ? '/preview-admin' : '/admin');
   let studyPreviewHref = $derived.by(() => {
     if (data.previewMode) return null;
-    const { learnerStudyPreviewHref = '/study' } = data;
-    return learnerStudyPreviewHref;
+    const caseId = selectedCase?.case?.id;
+    const returnQuery = data['caseLibraryReturnQuery'];
+    return caseId
+      ? `/admin/study-preview?mode=direct&caseId=${encodeURIComponent(caseId)}${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`
+      : '/admin/study-preview';
   });
   let fastReviewSummary = $derived(buildCaseFastReviewSummary(selectedCase));
   let caseQuestionAudit = $derived(buildCaseQuestionAudit(selectedCase));

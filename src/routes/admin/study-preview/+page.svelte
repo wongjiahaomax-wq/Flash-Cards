@@ -1,4 +1,6 @@
 <script>
+  import AdminStudyPreviewCase from '$lib/components/AdminStudyPreviewCase.svelte';
+
   let { data } = $props();
 </script>
 
@@ -6,6 +8,9 @@
   <title>Study Preview | Admin | Flash-Cards</title>
 </svelte:head>
 
+{#if data.directMode}
+  <AdminStudyPreviewCase preview={data.preview} backHref={data.directBackHref} errorMessage={data.directError ?? ''} />
+{:else}
 <main class="shell preview-shell">
   <nav class="preview-nav"><a href="/admin">← Admin</a><span class="muted">Read-only learner rendering reference</span></nav>
 
@@ -85,6 +90,7 @@
     <p class="empty-state">Choose a Case to preview. The candidate list is resolved from the current accepted System/Topic/Tag architecture.</p>
   {/if}
 </main>
+{/if}
 
 <style>
   .preview-shell { max-width:960px; display:grid; gap:1.5rem; }
