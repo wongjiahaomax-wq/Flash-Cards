@@ -16,6 +16,7 @@ import {
   listCurrentPromptTagAssignments,
   listTaggableCaseQuestions,
   listTaggableCases,
+  removeCaseTag,
   listTags,
   setTagActive,
   TagInputError
@@ -113,6 +114,35 @@ test('Case Tags do not automatically become Question Tags', async () => {
       true,
       JSON.stringify(currentPromptAssignments)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('existing Case Tag mutations return authoritative changed and timestamp outcomes', async () => {
+  const fixture = createLearningDb();
+  try {
+    const context = firstActiveCaseAndQuestion(fixture.sqlite);
+    const tag = await createTag(fixture.db, 'Inline mutation Tag');
+
+    const noOpRemoval = await removeCaseTag(fixture.db, { caseId: context.case_id, tagId: tag.id });
+    assert.deepEqual(noOpRemoval, { changed: false, tag: { id: tag.id, name: tag.name }, updatedAt: null });
+
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_tag_timestamp
+      BEFORE UPDATE OF updated_at ON cases
+      WHEN OLD.id = '${context.case_id}'
+      BEGIN SELECT RAISE(ABORT, 'forced tag timestamp failure'); END;
+    `);
+    const added = await addCaseTag(fixture.db, { caseId: context.case_id, tagId: tag.id });
+    assert.equal(added.changed, true);
+    assert.equal(added.updatedAt, null);
+    assert.equal(Boolean(fixture.sqlite.prepare('SELECT 1 FROM case_tags WHERE case_id = ? AND tag_id = ?').get(context.case_id, tag.id)), true);
+
+    const removed = await removeCaseTag(fixture.db, { caseId: context.case_id, tagId: tag.id });
+    assert.equal(removed.changed, true);
+    assert.equal(removed.updatedAt, null);
+    assert.equal(Boolean(fixture.sqlite.prepare('SELECT 1 FROM case_tags WHERE case_id = ? AND tag_id = ?').get(context.case_id, tag.id)), false);
   } finally {
     fixture.sqlite.close();
   }

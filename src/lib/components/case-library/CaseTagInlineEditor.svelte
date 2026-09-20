@@ -2,8 +2,8 @@
   import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import { invalidateAll } from '$app/navigation';
 
-  /** @type {{ caseId: string, caseTitle: string, tags: { id: string, name: string }[], availableTags: { id: string, name: string }[], selectedCaseIds?: string[], cases?: { id: string, title: string, tags: { id: string, name: string }[] }[] }} */
-  let { caseId, caseTitle, tags, availableTags, selectedCaseIds = [], cases = [] } = $props();
+  /** @type {{ caseId: string, caseTitle: string, tags: { id: string, name: string }[], availableTags: { id: string, name: string }[], selectedCaseIds?: string[], cases?: { id: string, title: string, tags: { id: string, name: string }[] }[], onMutation?: (mutation: any) => void }} */
+  let { caseId, caseTitle, tags, availableTags, selectedCaseIds = [], cases = [], onMutation = () => {} } = $props();
   let selectedTagId = $state('');
   let newTagName = $state('');
   let error = $state('');
@@ -61,7 +61,12 @@
       }
       selectedTagId = '';
       newTagName = '';
-      await invalidateAll();
+      if (operation === 'add' || operation === 'remove') {
+        const payload = await response.json();
+        onMutation({ ...payload?.mutation, caseId });
+      } else {
+        await invalidateAll();
+      }
     } catch {
       error = 'Unable to update this Case Tag.';
     } finally {

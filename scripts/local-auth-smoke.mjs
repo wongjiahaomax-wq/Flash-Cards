@@ -34,6 +34,35 @@ const validVerificationId = '00000000-0000-4000-8000-000000000003';
 const expiredVerificationId = '00000000-0000-4000-8000-000000000004';
 const previewVerificationId = '00000000-0000-4000-8000-000000000005';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
+const TRANSIENT_FETCH_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET']);
+
+/**
+ * Wrangler can briefly close an in-flight loopback connection while its local
+ * Worker reloads around a persisted D1 query. Retry only transport failures;
+ * HTTP responses and application assertions remain authoritative.
+ *
+ * @param {Parameters<typeof globalThis.fetch>[0]} input
+ * @param {Parameters<typeof globalThis.fetch>[1]} [init]
+ */
+async function fetchWithTransientRetry(input, init) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await globalThis.fetch(input, init);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'cause' in error
+        ? error.cause && typeof error.cause === 'object' && 'code' in error.cause
+          ? error.cause.code
+          : null
+        : null;
+      if (!(error instanceof TypeError) || !TRANSIENT_FETCH_ERROR_CODES.has(code) || attempt >= 3) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+    }
+  }
+}
+
+const fetch = fetchWithTransientRetry;
 
 function runWrangler(args, { capture = false } = {}) {
   if (capture) {

@@ -53,3 +53,17 @@ export function reconcileVisibleCaseSelection(input) {
     removedCount: submittedIds.length - selectedIds.length
   };
 }
+
+/**
+ * Remove one Case immediately after local filter reconciliation. This keeps
+ * bulk controls and the Shift-click anchor from retaining an invisible Case
+ * while a background Case Library refresh is still pending.
+ * @param {{ selectedIds?: Iterable<string>, anchorId?: string | null, caseId: string }} input
+ */
+export function reconcileRemovedCaseSelection(input) {
+  const caseId = String(input.caseId ?? '').trim();
+  return {
+    selectedIds: [...new Set(input.selectedIds ?? [])].filter((id) => id !== caseId),
+    anchorId: input.anchorId === caseId ? null : input.anchorId ?? null
+  };
+}

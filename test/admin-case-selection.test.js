@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyCaseSelection, reconcileVisibleCaseSelection } from '../src/lib/admin-case-selection.js';
+import { applyCaseSelection, reconcileRemovedCaseSelection, reconcileVisibleCaseSelection } from '../src/lib/admin-case-selection.js';
 
 const displayed = ['case-c', 'case-a', 'case-d', 'case-b'];
 
@@ -47,5 +47,12 @@ test('failed assignment retry can detect when every prior Case disappeared from 
       visibleIds: ['case-c']
     }),
     { selectedIds: [], submittedCount: 2, removedCount: 2 }
+  );
+});
+
+test('filtered inline removal immediately clears the invisible Case and stale Shift-click anchor', () => {
+  assert.deepEqual(
+    reconcileRemovedCaseSelection({ selectedIds: ['case-a', 'case-b'], anchorId: 'case-b', caseId: 'case-b' }),
+    { selectedIds: ['case-a'], anchorId: null }
   );
 });
