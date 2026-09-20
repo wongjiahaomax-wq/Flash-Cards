@@ -48,6 +48,17 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   await page.goto('/admin/cases');
   await expect(page.getByRole('heading', { name: 'Active Cases' })).toBeVisible();
 
+  const filteredFixtureRow = page.locator('.table-row').filter({ hasText: filteredCaseTitle });
+  await expect(filteredFixtureRow).toHaveCount(1);
+  let filteredFixtureTag = filteredFixtureRow.locator('.tag-chip').filter({ hasText: existingTagName });
+  if (await filteredFixtureTag.count() === 0) {
+    await filteredFixtureRow.getByText('Edit tags', { exact: true }).click();
+    await filteredFixtureRow.locator('select[id^="existing-tag-"]').selectOption(existingTagId);
+    await filteredFixtureRow.getByRole('button', { name: 'Add', exact: true }).click();
+    filteredFixtureTag = filteredFixtureRow.locator('.tag-chip').filter({ hasText: existingTagName });
+  }
+  await expect(filteredFixtureTag).toHaveCount(1);
+
   const commonRefreshes = libraryRefreshRequests(page);
   const commonRow = page.locator('.table-row').filter({ hasText: commonCaseTitle });
   await expect(commonRow).toHaveCount(1);
@@ -82,8 +93,10 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   const editedRow = page.locator('.table-row').filter({ hasText: commonCaseTitle });
   await expect(editedRow).toHaveCount(1);
   await editedRow.getByText('Edit tags', { exact: true }).click();
-  await editedRow.getByRole('button', { name: 'Remove', exact: true }).click();
-  await expect(editedRow.locator('.tag-chip')).toHaveCount(0);
+  const editedTargetTag = editedRow.locator('.current-tag').filter({ hasText: existingTagName });
+  await expect(editedTargetTag).toHaveCount(1);
+  await editedTargetTag.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(editedRow.locator('.tag-chip').filter({ hasText: existingTagName })).toHaveCount(0);
   await expect.poll(() => editedRefreshes.length).toBeGreaterThan(0);
 
   await page.goto(`/admin/cases?${filteredQuery}`);
@@ -119,7 +132,10 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   await expect(filteredTagRow).toHaveCount(1);
   await filteredTagRow.getByRole('checkbox', { name: new RegExp(`Select ${filteredCaseTitle}`) }).check();
   await filteredTagRow.getByText('Edit tags', { exact: true }).click();
-  await filteredTagRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  const filteredTargetTag = filteredTagRow.locator('.current-tag').filter({ hasText: existingTagName });
+  await expect(filteredTargetTag).toHaveCount(1);
+  await filteredTargetTag.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(filteredTagRow.locator('.tag-chip').filter({ hasText: existingTagName })).toHaveCount(0);
   await expect(filteredTagRow).toHaveCount(0);
   await expect(page.locator('.bulk-toolbar')).toContainText('0 Cases selected');
   await expect.poll(() => filteredTagRefreshes.length).toBeGreaterThan(0);
