@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import CaseClassificationEditor from '$lib/components/case-library/CaseClassificationEditor.svelte';
   import CaseLibraryFilterCombobox from '$lib/components/case-library/CaseLibraryFilterCombobox.svelte';
@@ -7,7 +8,7 @@
   import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
   import { CASE_LIBRARY_UNASSIGNED_SYSTEM as CASE_LIBRARY_UNASSIGNED_SYSTEM_ID } from '$lib/case-library-classification.ts';
   import { formatCaseAuthoringDate } from '$lib/case-authoring-dates.js';
-  import { applyCaseSelection, reconcileVisibleCaseSelection } from '$lib/admin-case-selection.js';
+  import { applyCaseSelection, reconcileRemovedCaseSelection, reconcileVisibleCaseSelection } from '$lib/admin-case-selection.js';
   import {
     CASE_LIBRARY_STATE_VERSION,
     caseEditorHref,
@@ -21,10 +22,16 @@
   } from '$lib/admin-case-library-state.ts';
 
   let { data, form } = $props();
+  /** @type {{ id: string, title: string, conceptId: string | null, conceptName: string | null, systemName: string | null, tags: { id: string, name: string }[], createdAt: Date, updatedAt: Date }[]} */
+  let localCases = $state(data.cases);
+
+  $effect(() => {
+    localCases = data.cases;
+  });
 
   /** @param {unknown} value */
   function failedTopicSelection(value) {
-    const visibleIds = data.cases.map((item) => item.id);
+    const visibleIds = localCases.map((item) => item.id);
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return reconcileVisibleCaseSelection({ selectedIds: [], visibleIds });
     }
@@ -49,7 +56,7 @@
   let inactiveView = $derived(data.caseFilters.lifecycle === 'inactive');
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
-  let allVisibleSelected = $derived(data.cases.length > 0 && data.cases.every((item) => selectedCaseIds.includes(item.id)));
+  let allVisibleSelected = $derived(localCases.length > 0 && localCases.every((item) => selectedCaseIds.includes(item.id)));
   let topicFilterOptions = $derived((data.filterTopics ?? []).map((topic) => ({
     id: topic.id,
     label: topic.name,
@@ -80,6 +87,88 @@
   let topicCreationError = $derived(topicCreationFailure && form && 'error' in form ? form.error : '');
   let topicCreationName = $derived(form && 'topicName' in form ? String(form.topicName ?? '') : '');
   let topicCreationParentId = $derived(form && 'topicParentId' in form ? String(form.topicParentId ?? '') : '');
+
+  /** @param {string} caseId */
+  function removeInvisibleSelection(caseId) {
+    const reconciled = reconcileRemovedCaseSelection({ selectedIds: selectedCaseIds, anchorId: selectionAnchorId, caseId });
+    selectedCaseIds = reconciled.selectedIds;
+    selectionAnchorId = reconciled.anchorId;
+  }
+
+  /** @param {unknown} value @param {Date} fallback */
+  function authoritativeDate(value, fallback) {
+    if (typeof value !== 'string' || !value) return fallback;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+  }
+
+  /** @param {{ topicId: string, systemId: string }} filters @param {{ conceptId: string | null, systemName: string | null }} row @param {{ system?: { id: string, name: string } | null }} mutation */
+  function classificationMatchesFilters(filters, row, mutation) {
+    if (filters.topicId && row.conceptId !== filters.topicId) return false;
+    if (!filters.systemId) return true;
+    const systemId = mutation.system?.id ?? null;
+    return filters.systemId === CASE_LIBRARY_UNASSIGNED_SYSTEM_ID ? !systemId : systemId === filters.systemId;
+  }
+
+  /** @param {{ caseId?: string, changed?: boolean, topic?: { id: string, name: string }, system?: { id: string, name: string } | null, updatedAt?: string | null }} mutation */
+  function applyClassificationMutation(mutation) {
+    if (!mutation?.caseId) return;
+    const index = localCases.findIndex((item) => item.id === mutation.caseId);
+    if (index < 0) return;
+    const current = localCases[index];
+    const next = {
+      ...current,
+      conceptId: mutation.topic?.id ?? current.conceptId ?? null,
+      conceptName: mutation.topic?.name ?? current.conceptName ?? null,
+      systemName: mutation.system?.name ?? null,
+      updatedAt: mutation.changed ? authoritativeDate(mutation.updatedAt, current.updatedAt) : current.updatedAt
+    };
+    const remainsVisible = classificationMatchesFilters(data.caseFilters, next, mutation);
+    localCases = remainsVisible
+      ? localCases.map((item, itemIndex) => itemIndex === index ? next : item)
+      : localCases.filter((item) => item.id !== mutation.caseId);
+    if (!remainsVisible) removeInvisibleSelection(mutation.caseId);
+
+    const sort = data.caseFilters.sort ?? 'case-asc';
+    const compositionAffected = Boolean(
+      data.caseFilters.topicId ||
+      data.caseFilters.systemId ||
+      sort.startsWith('topic-') ||
+      sort.startsWith('system-') ||
+      (sort.startsWith('edited-') && mutation.changed && mutation.updatedAt)
+    );
+    if (compositionAffected) void invalidateAll().catch(() => {});
+  }
+
+  /** @param {{ caseId?: string, operation?: 'add' | 'remove', changed?: boolean, tag?: { id: string, name: string }, updatedAt?: string | null }} mutation */
+  function applyCaseTagMutation(mutation) {
+    if (!mutation?.caseId || !mutation.changed || !mutation.tag || !mutation.operation) return;
+    const index = localCases.findIndex((item) => item.id === mutation.caseId);
+    if (index < 0) return;
+    const current = localCases[index];
+    const tag = mutation.tag;
+    const nextTags = mutation.operation === 'add'
+      ? [...current.tags.filter((currentTag) => currentTag.id !== tag.id), tag].sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+      : current.tags.filter((currentTag) => currentTag.id !== tag.id);
+    const next = {
+      ...current,
+      tags: nextTags,
+      updatedAt: authoritativeDate(mutation.updatedAt, current.updatedAt)
+    };
+    const remainsVisible = !data.caseFilters.tagId || next.tags.some((tag) => tag.id === data.caseFilters.tagId);
+    localCases = remainsVisible
+      ? localCases.map((item, itemIndex) => itemIndex === index ? next : item)
+      : localCases.filter((item) => item.id !== mutation.caseId);
+    if (!remainsVisible) removeInvisibleSelection(mutation.caseId);
+
+    const sort = data.caseFilters.sort ?? 'case-asc';
+    const compositionAffected = Boolean(
+      data.caseFilters.tagId ||
+      sort.startsWith('tag-') ||
+      (sort.startsWith('edited-') && mutation.updatedAt)
+    );
+    if (compositionAffected) void invalidateAll().catch(() => {});
+  }
 
   function currentStoredState() {
     return {
@@ -117,7 +206,7 @@
   });
 
   $effect(() => {
-    const visibleIds = data.cases.map((item) => item.id);
+    const visibleIds = localCases.map((item) => item.id);
     const reconciled = reconcileVisibleCaseSelection({ selectedIds: selectedCaseIds, visibleIds });
     if (reconciled.removedCount) selectedCaseIds = reconciled.selectedIds;
     if (selectionAnchorId && !visibleIds.includes(selectionAnchorId)) selectionAnchorId = null;
@@ -183,13 +272,13 @@
   }
 
   function toggleAllVisible() {
-    selectedCaseIds = allVisibleSelected ? [] : data.cases.map((item) => item.id);
+    selectedCaseIds = allVisibleSelected ? [] : localCases.map((item) => item.id);
     selectionAnchorId = null;
   }
 
   /** @param {string} caseId @param {MouseEvent} event */
   function selectCase(caseId, event) {
-    const next = applyCaseSelection({ selectedIds: selectedCaseIds, orderedIds: data.cases.map((item) => item.id), anchorId: selectionAnchorId, caseId, shiftKey: event.shiftKey });
+    const next = applyCaseSelection({ selectedIds: selectedCaseIds, orderedIds: localCases.map((item) => item.id), anchorId: selectionAnchorId, caseId, shiftKey: event.shiftKey });
     selectedCaseIds = [...next.selectedIds];
     selectionAnchorId = next.anchorId;
   }
@@ -295,7 +384,7 @@
   <form method="POST" action={actionHref(inactiveView ? 'bulkRestoreCases' : 'bulkDeactivateCases')}>
     <input type="hidden" name="return_query" value={currentQuery()} />
     {#if inactiveView}
-      {#if data.cases.length}
+      {#if localCases.length}
         <div class="bulk-toolbar"><div><strong>Bulk restore Cases</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span><span class="selection-hint">Shift-click a row to select a range</span></div><button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Restore selected</button></div>
       {/if}
     {:else}
@@ -306,22 +395,22 @@
         <label class="bulk-system">System<select name="system_id" form="bulk-topic-system-move-form" required disabled={!selectedCaseIds.length}><option value="">Choose a System</option>{#each data.topicParents.filter((option) => option.kind === 'system') as system}<option value={system.id}>{system.name}</option>{/each}</select></label>
         <button class="button warning" type="submit" form="bulk-topic-system-move-form" disabled={!selectedCaseIds.length}>Move Topics globally</button>
         <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} actionQuery={currentQuery()} retryRequiresSelection={topicCreationRetryRequiresSelection} />
-        <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} actionQuery={currentQuery()} />
+        <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={localCases} availableTags={data.tags} actionQuery={currentQuery()} />
         <button class="button danger" type="submit" disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
       </div>
     {/if}
 
-    {#if data.cases.length === 0}
+    {#if localCases.length === 0}
       <p class="empty-state">No {inactiveView ? 'inactive' : 'active'} Cases match these filters.</p>
     {:else}
       <div class="case-table" role="list">
         <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><a class="sort-header" href={sortHref('added')} aria-label={`Sort by Added date ${data.caseFilters.sort === 'added-asc' ? 'descending' : 'ascending'}`}>Added <span aria-hidden="true">{sortIndicator('added')}</span></a><a class="sort-header" href={sortHref('edited')} aria-label={`Sort by Last edited date ${data.caseFilters.sort === 'edited-asc' ? 'descending' : 'ascending'}`}>Last edited <span aria-hidden="true">{sortIndicator('edited')}</span></a><span>Open</span></div>
-        {#each data.cases as item}
+        {#each localCases as item}
           <div class="table-row" class:inactive-row={inactiveView} class:selected-row={selectedCaseIds.includes(item.id)}>
             <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} checked={selectedCaseIds.includes(item.id)} onclick={(event) => selectCase(item.id, event)} aria-label={`Select ${item.title}`} /><span class="case-details"><span class="case-title-line"><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span></span></span>
-            {#if inactiveView}<span>{item.conceptName ?? 'Unassigned'}</span>{:else}<div class="classification-cell"><span>{item.conceptName ?? 'Unassigned'}</span><CaseClassificationEditor caseId={item.id} caseTitle={item.title} currentTopicId={item.conceptId ?? ''} currentTopicName={item.conceptName ?? 'Unassigned'} currentSystemName={item.systemName ?? 'Unassigned'} topics={data.topics} parentOptions={data.topicParents} /></div>{/if}
+            {#if inactiveView}<span>{item.conceptName ?? 'Unassigned'}</span>{:else}<div class="classification-cell"><span>{item.conceptName ?? 'Unassigned'}</span><CaseClassificationEditor caseId={item.id} caseTitle={item.title} currentTopicId={item.conceptId ?? ''} currentTopicName={item.conceptName ?? 'Unassigned'} currentSystemName={item.systemName ?? 'Unassigned'} topics={data.topics} parentOptions={data.topicParents} onMutation={applyClassificationMutation} /></div>{/if}
             <span>{item.systemName ?? 'Unassigned'}</span>
-            <div class="tag-cell">{#if inactiveView}<span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>{:else}<CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} selectedCaseIds={selectedCaseIds} cases={data.cases} />{/if}</div>
+            <div class="tag-cell">{#if inactiveView}<span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>{:else}<CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} selectedCaseIds={selectedCaseIds} cases={localCases} onMutation={applyCaseTagMutation} />{/if}</div>
             <span class="case-date" data-label="Added"><time datetime={item.createdAt?.toISOString?.() ?? ''}>{formatCaseAuthoringDate(item.createdAt)}</time></span>
             <span class="case-date" data-label="Last edited"><time datetime={item.updatedAt?.toISOString?.() ?? ''}>{formatCaseAuthoringDate(item.updatedAt)}</time></span>
             <a class="open-link" href={caseHref(item)}>{inactiveView ? 'Recover' : 'Open'} →</a>

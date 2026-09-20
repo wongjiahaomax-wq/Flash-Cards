@@ -192,11 +192,12 @@ export async function setTagActive(db, input) {
 /** @param {LearningDb} db @param {string} tagId */
 async function requireActiveTag(db, tagId) {
   const row = await db
-    .select({ id: tags.id })
+    .select({ id: tags.id, name: tags.name })
     .from(tags)
     .where(and(eq(tags.id, tagId), eq(tags.isActive, true)))
     .limit(1);
   if (!row[0]) throw new TagInputError('The selected Tag is missing or inactive.');
+  return row[0];
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -264,7 +265,7 @@ async function requireActiveCaseQuestion(db, caseQuestionId) {
 export async function addCaseTag(db, input) {
   const caseId = requiredId(input.caseId, 'Case');
   const tagId = requiredId(input.tagId, 'Tag');
-  await Promise.all([requireActiveCase(db, caseId), requireActiveTag(db, tagId)]);
+  const [, tag] = await Promise.all([requireActiveCase(db, caseId), requireActiveTag(db, tagId)]);
   try {
     await db.insert(caseTags).values({ caseId, tagId });
   } catch (error) {
@@ -273,7 +274,9 @@ export async function addCaseTag(db, input) {
     }
     throw error;
   }
-  await touchProductionCaseUpdatedAt(db, caseId);
+  const updatedAt = new Date();
+  const timestampUpdated = await touchProductionCaseUpdatedAt(db, caseId, updatedAt);
+  return { changed: true, tag, updatedAt: timestampUpdated ? updatedAt.toISOString() : null };
 }
 
 /** @param {LearningDb} db @param {{ caseId: unknown, tagId: unknown }} input */
@@ -281,15 +284,26 @@ export async function removeCaseTag(db, input) {
   const caseId = requiredId(input.caseId, 'Case');
   const tagId = requiredId(input.tagId, 'Tag');
   await requireProductionCase(db, caseId);
+  const tagRow = await db
+    .select({ id: tags.id, name: tags.name })
+    .from(tags)
+    .where(eq(tags.id, tagId))
+    .limit(1);
   const existing = await db
-    .select({ caseId: caseTags.caseId })
+    .select({ caseId: caseTags.caseId, tagId: caseTags.tagId, tagName: tags.name })
     .from(caseTags)
+    .innerJoin(tags, eq(tags.id, caseTags.tagId))
     .where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tagId)))
     .limit(1);
-  if (!existing[0]) return false;
+  if (!existing[0]) return { changed: false, tag: tagRow[0] ?? { id: tagId, name: tagId }, updatedAt: null };
   await db.delete(caseTags).where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tagId)));
-  await touchProductionCaseUpdatedAt(db, caseId);
-  return true;
+  const updatedAt = new Date();
+  const timestampUpdated = await touchProductionCaseUpdatedAt(db, caseId, updatedAt);
+  return {
+    changed: true,
+    tag: { id: existing[0].tagId, name: existing[0].tagName },
+    updatedAt: timestampUpdated ? updatedAt.toISOString() : null
+  };
 }
 
 /** @param {LearningDb} db @param {{ caseQuestionId: unknown, tagId: unknown }} input */

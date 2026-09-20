@@ -31,8 +31,8 @@ export async function POST({ request, locals, platform, params }) {
   const db = createDb(platform.env.DB);
   try {
     if (operation === 'select-topic') {
-      await promoteCaseTopic(db, { caseId, conceptId: formText(formData, 'concept_id') });
-      return json({ ok: true, status: 'classification-updated' });
+      const mutation = await promoteCaseTopic(db, { caseId, conceptId: formText(formData, 'concept_id') });
+      return json({ ok: true, status: 'classification-updated', mutation });
     }
     if (operation === 'create-topic') {
       const created = await createCaseLibraryTopic(db, {
