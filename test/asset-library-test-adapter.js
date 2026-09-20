@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm';
 import {
+  ASSET_LIBRARY_PAGE_SIZE,
   AssetLibraryInputError,
   getAssetLibraryDetail as getAssetLibraryDetailReal,
-  listAssetLibrary as listAssetLibraryReal,
+  getAssetLibraryPage,
   parseAssetLibraryFilters,
   updateAssetMetadata
 } from '../src/lib/server/db/asset-library.js';
@@ -41,7 +42,21 @@ async function ensureDedupeColumnFixture(db) {
 export async function listAssetLibrary(db, filters = {}) {
   await ensureActiveReviewAssetFixture(db);
   await ensureDedupeColumnFixture(db);
-  return listAssetLibraryReal(db, filters);
+  const normalized = {
+    search: String(filters.search ?? '').trim(),
+    topic: String(filters.topic ?? '').trim(),
+    collection: String(filters.collection ?? '').trim(),
+    usage: filters.usage ?? 'all',
+    status: filters.status ?? 'all',
+    source: filters.source ?? 'all',
+    sort: filters.sort ?? 'newest'
+  };
+  const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
+  const rows = [...first.rows];
+  for (let page = 2; page <= first.totalPages; page += 1) {
+    rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
+  }
+  return rows;
 }
 
 /** @param {any} db @param {string} assetId */
