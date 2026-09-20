@@ -415,19 +415,6 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   return { rows, totalCount, totalPages, page, pageSize, requestedPage, allMatchingIds };
 }
 
-/**
- * Backwards-compatible unpaged helper retained for current callers/tests.
- * @param {LearningDb} db
- * @param {Partial<ReturnType<typeof parseAssetLibraryFilters>>} [filters]
- */
-export async function listAssetLibrary(db, filters = {}) {
-  const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), collection: String(filters.collection ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
-  const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
-  const rows = [...first.rows];
-  for (let page = 2; page <= first.totalPages; page += 1) rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
-  return rows;
-}
-
 /** @param {LearningDb} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   const normalizedId = requiredText(assetId, 'Asset');

@@ -188,7 +188,6 @@ src/lib/study-topic-hierarchy.js
 src/lib/server/learning/plan-system-study.ts
 src/routes/study/**
 test/multi-system-learner-ux.test.js
-test/system-study-chooser-pr-b.test.js
 scripts/multi-system-v2-*.mjs
 scripts/multi-system-v2-*.js
 ```

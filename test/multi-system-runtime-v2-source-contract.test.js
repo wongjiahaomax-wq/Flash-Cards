@@ -204,8 +204,7 @@ test('Runtime v2 specialized CI owns direct taxonomy, hierarchy, route, learner 
     "- 'src/lib/server/learning/taxonomy-graph.ts'",
     "- 'src/lib/server/learning/study-routes.js'",
     "- 'src/routes/study/**'",
-    "- 'test/multi-system-learner-ux.test.js'",
-    "- 'test/system-study-chooser-pr-b.test.js'"
+    "- 'test/multi-system-learner-ux.test.js'"
   ]) {
     assert.ok(workflow.includes(ownedPath), `Runtime v2 workflow must own ${ownedPath}`);
   }
