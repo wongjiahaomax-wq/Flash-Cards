@@ -22,10 +22,12 @@ function createD1Fixture() {
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
+  const sqlLog = /** @type {string[]} */ ([]);
   /** @type {any} */
   const d1 = {
     /** @param {string} sql */
     prepare(sql) {
+      sqlLog.push(sql);
       return {
         /** @param {...any} params */
         bind(...params) {
@@ -43,7 +45,7 @@ function createD1Fixture() {
     /** @param {any[]} statements */
     async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
   };
-  return { d1, sqlite };
+  return { d1, sqlite, sqlLog };
 }
 
 /** @param {any} d1 @param {string} caseId @param {string} conceptId */
@@ -80,6 +82,11 @@ async function tagPost(d1, caseId, operation, tagId) {
 test('classification route returns bounded authoritative projection and timestamp outcome', async () => {
   const fixture = createD1Fixture();
   try {
+    fixture.sqlite.exec(`
+      INSERT INTO concepts (id, name, slug, parent_id, kind, is_active)
+      VALUES ('route-system', 'Route System', 'route-system', NULL, 'system', 1);
+      UPDATE concepts SET parent_id = 'route-system' WHERE id = 'seed-pityriasis-rosea';
+    `);
     const response = await classificationPost(fixture.d1, 'seed-anterior-a', 'seed-pityriasis-rosea');
     assert.equal(response.status, 200);
     const payload = await response.json();
@@ -87,6 +94,14 @@ test('classification route returns bounded authoritative projection and timestam
     assert.equal(payload.mutation.topic.id, 'seed-pityriasis-rosea');
     assert.equal(typeof payload.mutation.updatedAt, 'string');
     assert.ok(Array.isArray(payload.mutation.taxonomyPath));
+    assert.deepEqual(payload.mutation.system, { id: 'route-system', name: 'Route System' });
+    assert.deepEqual(payload.mutation.taxonomyPath.map((/** @type {any} */ node) => node.id), ['route-system', 'seed-pityriasis-rosea']);
+    assert.equal(
+      fixture.sqlLog.some((sql) => /FROM\s+["`]?concepts["`]?\s+ORDER BY/i.test(sql)),
+      false,
+      'classification must not load the complete taxonomy'
+    );
+    assert.equal(fixture.sqlLog.some((sql) => /WITH\s+RECURSIVE\s+topic_ancestry/i.test(sql)), true);
   } finally {
     fixture.sqlite.close();
   }

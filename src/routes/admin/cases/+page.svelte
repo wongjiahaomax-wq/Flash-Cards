@@ -112,7 +112,7 @@
 
   /** @param {{ caseId?: string, changed?: boolean, topic?: { id: string, name: string }, system?: { id: string, name: string } | null, updatedAt?: string | null }} mutation */
   function applyClassificationMutation(mutation) {
-    if (!mutation?.caseId) return;
+    if (!mutation?.caseId || !mutation.changed) return;
     const index = localCases.findIndex((item) => item.id === mutation.caseId);
     if (index < 0) return;
     const current = localCases[index];
@@ -121,7 +121,7 @@
       conceptId: mutation.topic?.id ?? current.conceptId ?? null,
       conceptName: mutation.topic?.name ?? current.conceptName ?? null,
       systemName: mutation.system?.name ?? null,
-      updatedAt: mutation.changed ? authoritativeDate(mutation.updatedAt, current.updatedAt) : current.updatedAt
+      updatedAt: authoritativeDate(mutation.updatedAt, current.updatedAt)
     };
     const remainsVisible = classificationMatchesFilters(data.caseFilters, next, mutation);
     localCases = remainsVisible

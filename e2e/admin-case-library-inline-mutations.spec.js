@@ -13,6 +13,8 @@ const filteredQuery = process.env.CASE_LIBRARY_E2E_FILTERED_QUERY ?? 'system=__u
 const namedTargetTopicId = process.env.CASE_LIBRARY_E2E_NAMED_TARGET_TOPIC_ID;
 const namedTargetTopicName = process.env.CASE_LIBRARY_E2E_NAMED_TARGET_TOPIC_NAME;
 const namedTargetSystemId = process.env.CASE_LIBRARY_E2E_NAMED_TARGET_SYSTEM_ID;
+const existingTagId = process.env.CASE_LIBRARY_E2E_EXISTING_TAG_ID;
+const existingTagName = process.env.CASE_LIBRARY_E2E_EXISTING_TAG_NAME;
 
 async function signIn(page) {
   await page.goto('/sign-in?redirect=%2Fadmin%2Fcases');
@@ -38,8 +40,8 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   test.skip(
     !email || !password || !commonCaseTitle || !commonTargetTopicId || !commonTargetTopicName ||
       !filteredCaseTitle || !filteredTargetTopicId || !filteredTargetTopicName || !filteredTargetSystemId ||
-      !namedTargetTopicId || !namedTargetTopicName || !namedTargetSystemId,
-    'Set CASE_LIBRARY_E2E_EMAIL, CASE_LIBRARY_E2E_PASSWORD, common-case variables, and filtered/named-target variables for the seeded local Production Case acceptance.'
+      !namedTargetTopicId || !namedTargetTopicName || !namedTargetSystemId || !existingTagId || !existingTagName,
+    'Set CASE_LIBRARY_E2E_EMAIL, CASE_LIBRARY_E2E_PASSWORD, common/filtered/named-target variables, and existing-tag variables for the seeded local Production Case acceptance.'
   );
 
   await signIn(page);
@@ -54,6 +56,35 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   await commonRow.getByRole('button', { name: 'Save' }).click();
   await expect(commonRow).toContainText(commonTargetTopicName);
   expect(commonRefreshes).toHaveLength(0);
+
+  await page.goto(`/admin/cases?topic=${encodeURIComponent(commonTargetTopicId)}`);
+  const noOpRefreshes = libraryRefreshRequests(page);
+  const noOpRow = page.locator('.table-row').filter({ hasText: commonCaseTitle });
+  await expect(noOpRow).toHaveCount(1);
+  await noOpRow.getByRole('button', { name: 'Edit classification' }).click();
+  await noOpRow.locator('select[id^="classification-topic-"]').selectOption(commonTargetTopicId);
+  await noOpRow.getByRole('button', { name: 'Save' }).click();
+  await expect(noOpRow).toContainText(commonTargetTopicName);
+  expect(noOpRefreshes).toHaveLength(0);
+
+  await page.goto('/admin/cases');
+  const tagRefreshes = libraryRefreshRequests(page);
+  const tagRow = page.locator('.table-row').filter({ hasText: commonCaseTitle });
+  await expect(tagRow).toHaveCount(1);
+  await tagRow.getByText('Edit tags', { exact: true }).click();
+  await tagRow.locator('select[id^="existing-tag-"]').selectOption(existingTagId);
+  await tagRow.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(tagRow.locator('.tag-chip')).toContainText(existingTagName);
+  expect(tagRefreshes).toHaveLength(0);
+
+  await page.goto('/admin/cases?sort=edited-desc');
+  const editedRefreshes = libraryRefreshRequests(page);
+  const editedRow = page.locator('.table-row').filter({ hasText: commonCaseTitle });
+  await expect(editedRow).toHaveCount(1);
+  await editedRow.getByText('Edit tags', { exact: true }).click();
+  await editedRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(editedRow.locator('.tag-chip')).toHaveCount(0);
+  await expect.poll(() => editedRefreshes.length).toBeGreaterThan(0);
 
   await page.goto(`/admin/cases?${filteredQuery}`);
   const conditionalRefreshes = libraryRefreshRequests(page);
@@ -81,4 +112,15 @@ test('Case Library inline mutations reconcile locally and refresh only when comp
   await expect(namedRow).toHaveCount(0);
   await expect.poll(() => namedRefreshes.length).toBeGreaterThan(0);
   await expect(page.locator('.table-row').filter({ hasText: namedTargetTopicName })).toHaveCount(0);
+
+  await page.goto(`/admin/cases?tag=${encodeURIComponent(existingTagId)}`);
+  const filteredTagRefreshes = libraryRefreshRequests(page);
+  const filteredTagRow = page.locator('.table-row').filter({ hasText: filteredCaseTitle });
+  await expect(filteredTagRow).toHaveCount(1);
+  await filteredTagRow.getByRole('checkbox', { name: new RegExp(`Select ${filteredCaseTitle}`) }).check();
+  await filteredTagRow.getByText('Edit tags', { exact: true }).click();
+  await filteredTagRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(filteredTagRow).toHaveCount(0);
+  await expect(page.locator('.bulk-toolbar')).toContainText('0 Cases selected');
+  await expect.poll(() => filteredTagRefreshes.length).toBeGreaterThan(0);
 });
