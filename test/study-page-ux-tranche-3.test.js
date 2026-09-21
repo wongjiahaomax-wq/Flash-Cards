@@ -170,7 +170,7 @@ test('failed Study planning clears its temporary status and renders the action m
   const planningEnd = page.indexOf('\n  async function continueRun()', planningStart);
   const planning = page.slice(planningStart, planningEnd);
   assert.match(planning, /if \(result\.type !== 'success'\) \{\s*runMessage = '';\s*await update\(\{ invalidateAll: true \}\);/);
-  assert.match(page, /\{#if runMessage \|\| form\?\.message\}[\s\S]*?form\?\.message \|\| runMessage/);
+  assert.match(page, /\{#if \(?runMessage \|\| form\?\.message\)?(?:\s*&&[^}]*)?\}[\s\S]*?form\?\.message \|\| runMessage/);
   assert.equal((page.match(/form\?\.message/g) ?? []).length, 4, 'Study should use one status owner while retaining the form message checks');
   assert.doesNotMatch(page, /\{#if form\?\.message\}<p class="form-error"/);
 });

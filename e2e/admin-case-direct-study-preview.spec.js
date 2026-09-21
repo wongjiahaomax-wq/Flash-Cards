@@ -31,7 +31,7 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
   expect(new URL(page.url()).searchParams.get('return_query')).toBe(expectedReturnQuery);
 
   await expect(page.getByRole('heading', { name: 'Case review', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reveal answers', exact: true })).toBeVisible();
+  await expect(page.locator('.review-actions').getByRole('button', { name: 'Reveal answers', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Again|Hard|Good|Easy|Complete Free Review/ })).toHaveCount(0);
 
   const image = page.locator('[data-direct-case-preview] .asset-image-button').first();
@@ -43,11 +43,26 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
     await expect(modal.locator('img')).toHaveAttribute('src', imageUrl);
+    await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
     await modal.getByRole('button', { name: 'Close' }).click();
     await expect(modal).toHaveCount(0);
+    await expect(image).toBeFocused();
+
+    const inspect = page.locator('[data-direct-case-preview] .asset-inspect-button').first();
+    await inspect.click();
+    await expect(modal).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(modal).toHaveCount(0);
+    await expect(inspect).toBeFocused();
   }
 
-  await page.getByRole('button', { name: 'Reveal answers', exact: true }).click();
+  await expect(page.locator('.review-reveal-bar')).toBeVisible();
+  expect(await page.locator('.review-reveal-bar').evaluate((element) => getComputedStyle(element).position)).toBe('static');
+  await page.locator('.review-actions').getByRole('button', { name: 'Reveal answers', exact: true }).click();
   await expect(page.getByRole('heading', { name: caseTitle, exact: true })).toBeVisible();
   await expect(page.getByText('Answers revealed', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Back to Case Editor', exact: true }).last()).toBeVisible();

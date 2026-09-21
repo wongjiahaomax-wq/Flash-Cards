@@ -7,14 +7,23 @@
   let inspectedAsset = $state(null);
   /** @type {HTMLButtonElement|undefined} */
   let closeImageButton = $state();
+  /** @type {HTMLDivElement|undefined} */
+  let imageDialog = $state();
+  /** @type {HTMLButtonElement|null} */
+  let imageTrigger = $state(null);
 
-  /** @param {any} asset */
-  function openAssetInspection(asset) {
+  /** @param {any} asset @param {MouseEvent|null} [event] */
+  function openAssetInspection(asset, event = null) {
     inspectedAsset = asset;
+    const trigger = event?.currentTarget;
+    imageTrigger = trigger instanceof HTMLButtonElement ? trigger : null;
   }
 
   function closeAssetInspection() {
     inspectedAsset = null;
+    const trigger = imageTrigger;
+    imageTrigger = null;
+    requestAnimationFrame(() => trigger?.focus());
   }
 
   /** @param {MouseEvent} event */
@@ -22,9 +31,36 @@
     if (event.target === event.currentTarget) closeAssetInspection();
   }
 
+  function imageDialogFocusableElements() {
+    if (!imageDialog) return [];
+    return /** @type {HTMLElement[]} */ (Array.from(imageDialog.querySelectorAll(
+      'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )));
+  }
+
   /** @param {KeyboardEvent} event */
   function handleImageDialogKeydown(event) {
-    if (event.key === 'Escape' && inspectedAsset) closeAssetInspection();
+    if (!inspectedAsset || !imageDialog) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAssetInspection();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = imageDialogFocusableElements();
+    if (focusable.length === 0) {
+      event.preventDefault();
+      imageDialog.focus();
+      return;
+    }
+
+    const activeIndex = focusable.findIndex((element) => element === document.activeElement);
+    const nextIndex = event.shiftKey
+      ? activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1
+      : activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1;
+    event.preventDefault();
+    focusable[nextIndex]?.focus();
   }
 
   $effect(() => {
@@ -64,6 +100,16 @@
       {#if preview.snapshot.case.vignetteMd}<MarkdownContent class="case-vignette" source={preview.snapshot.case.vignetteMd} />{/if}
     </header>
 
+    {#if !revealed}
+      <section class="review-reveal-bar" aria-label="Reveal answers">
+        <div>
+          <strong>Reveal when you are ready</strong>
+          <p class="muted">This in-flow control stays available before a long Case preview without covering content.</p>
+        </div>
+        <button class="button primary action-button" type="button" onclick={() => (revealed = true)}>Reveal answers</button>
+      </section>
+    {/if}
+
     {#if preview.snapshot.assets.length > 0}
       <section class="review-section" aria-labelledby="assets-heading">
         <div class="section-heading">
@@ -77,10 +123,10 @@
           {#each preview.snapshot.assets as asset}
             <figure>
               <div class="asset-stage">
-                <button class="asset-image-button" type="button" aria-label="Inspect image" onclick={() => openAssetInspection(asset)}>
+                <button class="asset-image-button" type="button" aria-label="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
                   <img src={asset.imageUrl} alt={asset.altTextSnapshot ?? asset.captionSnapshotMd ?? 'Teaching image'} />
                 </button>
-                <button class="asset-inspect-button" type="button" aria-label="Inspect image" title="Inspect image" onclick={() => openAssetInspection(asset)}>
+                <button class="asset-inspect-button" type="button" aria-label="Inspect image" title="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
                   <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
                 </button>
               </div>
@@ -93,7 +139,7 @@
 
     {#if inspectedAsset}
       <div class="asset-modal-backdrop" role="presentation" onclick={handleImageDialogClick}>
-        <div class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" tabindex="-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+        <div bind:this={imageDialog} class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" tabindex="-1" onclick={(event) => event.stopPropagation()}>
           <div class="asset-dialog-panel">
             <div class="asset-dialog-header">
               <div>
@@ -177,6 +223,8 @@
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .muted { color:#667085; }
+  .review-reveal-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.9rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#f8fafc; }
+  .review-reveal-bar p { margin:.25rem 0 0; font-size:.9rem; }
   .review-section { display:grid; gap:1rem; }
   .section-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .section-heading h2 { margin:.15rem 0 0; }
@@ -218,7 +266,7 @@
   .button.primary { border-color:#172033; background:#172033; color:#fff; }
   button:focus-visible,a:focus-visible { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
   @media (max-width:700px) {
-    .section-heading,.review-actions { display:grid; align-items:stretch; }
+    .section-heading,.review-actions,.review-reveal-bar { display:grid; align-items:stretch; }
     .asset-grid { grid-template-columns:1fr; }
     .asset-stage,.singleAsset .asset-stage { min-height:260px; }
     .asset-modal-backdrop { padding:.5rem; }

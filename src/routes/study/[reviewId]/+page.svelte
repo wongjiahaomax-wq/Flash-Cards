@@ -81,13 +81,36 @@
     if (event.target === event.currentTarget) closeAssetInspection();
   }
 
+  function imageDialogFocusableElements() {
+    if (!imageDialog) return [];
+    return /** @type {HTMLElement[]} */ (Array.from(imageDialog.querySelectorAll(
+      'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )));
+  }
+
   /** @param {KeyboardEvent} event */
   function handleImageDialogKeydown(event) {
-    if (event.key === 'Escape' && inspectedAsset) closeAssetInspection();
-    if (event.key === 'Tab' && inspectedAsset && imageDialog && !imageDialog.contains(document.activeElement)) {
+    if (!inspectedAsset || !imageDialog) return;
+    if (event.key === 'Escape') {
       event.preventDefault();
-      closeImageButton?.focus();
+      closeAssetInspection();
+      return;
     }
+    if (event.key !== 'Tab') return;
+
+    const focusable = imageDialogFocusableElements();
+    if (focusable.length === 0) {
+      event.preventDefault();
+      imageDialog.focus();
+      return;
+    }
+
+    const activeIndex = focusable.findIndex((element) => element === document.activeElement);
+    const nextIndex = event.shiftKey
+      ? activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1
+      : activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1;
+    event.preventDefault();
+    focusable[nextIndex]?.focus();
   }
 
   /** @param {any} descriptor */
@@ -300,6 +323,18 @@
 
   {#if feedbackNotice}<p class="feedback-notice" role="status">{feedbackNotice}</p>{/if}
 
+  {#if !data.review.revealed}
+    <section class="review-reveal-bar" aria-label="Reveal answers">
+      <div>
+        <strong>Reveal when you are ready</strong>
+        <p class="muted">This in-flow control stays available before a long Case review without covering clinical content.</p>
+      </div>
+      <form method="POST" action="?/reveal" use:enhance={preserveRevealPosition}>
+        <button class="button primary action-button" type="submit">Reveal answers</button>
+      </form>
+    </section>
+  {/if}
+
   {#if reportDialog}
     <dialog bind:this={feedbackDialog} class="feedback-dialog" aria-labelledby="feedback-dialog-title" oncancel={handleFeedbackCancel} onclick={handleFeedbackBackdrop}>
       <div class="feedback-dialog-content">
@@ -360,7 +395,7 @@
 
   {#if inspectedAsset}
     <div class="asset-modal-backdrop" role="presentation" onclick={handleImageDialogClick}>
-      <div bind:this={imageDialog} class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" tabindex="-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+      <div bind:this={imageDialog} class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" tabindex="-1" onclick={(event) => event.stopPropagation()}>
         <div class="asset-dialog-panel">
           <div class="asset-dialog-header">
             <div>
@@ -465,6 +500,8 @@
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
   .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
   .feedback-notice { margin:0; color:#027a48; font-size:.9rem; }
+  .review-reveal-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.9rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#f8fafc; }
+  .review-reveal-bar p { margin:.25rem 0 0; font-size:.9rem; }
   .feedback-dialog { width:min(100% - 2rem, 520px); max-height:calc(100vh - 2rem); margin:auto; padding:0; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 24px 60px rgba(23,32,51,.22); }
   .feedback-dialog::backdrop { background:rgba(23,32,51,.35); }
   .feedback-dialog-content { padding:1.25rem; }
@@ -517,7 +554,7 @@
   .action-error { color:#b42318; }
   .text-button { padding:0; border:0; background:transparent; color:#475467; font:inherit; text-decoration:underline; cursor:pointer; }
   @media (max-width:700px) {
-    .section-heading,.review-actions { display:grid; align-items:stretch; }
+    .section-heading,.review-actions,.review-reveal-bar { display:grid; align-items:stretch; }
     .review-nav { align-items:flex-start; }
     .asset-grid { grid-template-columns:1fr; }
     .review-content-grid.has-assets { grid-template-columns:1fr; }

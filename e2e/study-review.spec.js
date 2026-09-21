@@ -13,6 +13,7 @@ test('Study Review protects the title until reveal and supports image inspection
 
   const reviewPath = studyReviewPath.startsWith('/') ? studyReviewPath : `/${studyReviewPath}`;
   await page.goto(`/sign-in?redirect=${encodeURIComponent(reviewPath)}`);
+  await page.waitForLoadState('networkidle');
   await page.getByLabel('Email or beta username').fill(studyReviewEmail);
   await page.getByLabel('Password').fill(studyReviewPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -32,19 +33,37 @@ test('Study Review protects the title until reveal and supports image inspection
   await expect(modal).toBeVisible();
   await expect(modal.locator('img')).toHaveAttribute('src', imageUrl);
   if (caption?.trim()) await expect(modal).toContainText(caption.trim());
+  await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(modal.getByRole('button', { name: 'Close' })).toBeFocused();
 
   await modal.getByRole('button', { name: 'Close' }).click();
   await expect(modal).toHaveCount(0);
+  await expect(image).toBeFocused();
 
   await page.locator('.asset-inspect-button').first().click();
   await expect(modal).toBeVisible();
   await page.locator('.asset-modal-backdrop').click({ position: { x: 2, y: 2 } });
   await expect(modal).toHaveCount(0);
 
-  await image.click();
+  await page.locator('.asset-inspect-button').first().click();
   await expect(modal).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(modal).toHaveCount(0);
+  await expect(page.locator('.asset-inspect-button').first()).toBeFocused();
+
+  const topReveal = page.locator('.review-reveal-bar').getByRole('button', { name: 'Reveal answers', exact: true });
+  await expect(topReveal).toBeVisible();
+  expect(await page.locator('.review-reveal-bar').evaluate((element) => getComputedStyle(element).position)).toBe('static');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.locator('.review-reveal-bar')).toBeVisible();
+  const revealBox = await page.locator('.review-reveal-bar').boundingBox();
+  const firstImageBox = await page.locator('.asset-stage').first().boundingBox();
+  expect(revealBox?.y ?? -1).toBeLessThan(firstImageBox?.y ?? -1);
 
   const scrollTop = await page.evaluate(() => {
     const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
@@ -54,7 +73,7 @@ test('Study Review protects the title until reveal and supports image inspection
   });
   expect(scrollTop).toBeGreaterThan(0);
 
-  await page.getByRole('button', { name: 'Reveal answers' }).click();
+  await page.locator('.review-actions').getByRole('button', { name: 'Reveal answers', exact: true }).click();
   await expect(page.locator('h1')).toHaveText(frozenTitle);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(scrollTop - 8);
 });

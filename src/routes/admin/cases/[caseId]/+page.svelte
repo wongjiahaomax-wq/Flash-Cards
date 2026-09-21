@@ -48,7 +48,7 @@
     feedbackOpen = Boolean(data.feedback?.autoOpen);
   });
   let feedbackSummary = $derived({
-    openCount: feedbackReports.filter((/** @type {any} */ report) => report.status === 'open').length,
+    openCount: feedbackReports.filter((report) => report.status === 'open').length,
     historyCount: feedbackReports.length
   });
   /** @param {any[]} reports */
