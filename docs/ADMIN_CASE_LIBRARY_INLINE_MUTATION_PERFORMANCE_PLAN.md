@@ -1,6 +1,6 @@
 # Admin Case Library inline-mutation performance plan
 
-_Status: Implementation is in this Draft PR; final validation and independent whole-PR review remain required._
+_Status (21 Sep 2026): Historical performance/implementation record for merged PR #188. The previous Draft and handoff instructions below are retained as evidence, not outstanding work. Additional Admin performance changes require fresh measured evidence; see Issue #191._
 
 ## Background
 

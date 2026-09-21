@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Shared Crop Workspace Plan
 
-_Status: implementation-ready after second-pass planning review. Planning and implementation belong in this same Draft PR; do not create a second PR, mark Ready, or merge until implementation and review are complete._
+_Status (21 Sep 2026): Historical implementation plan for merged PR #183. The original Draft-PR instructions and proposed design below are retained as decision/acceptance history, not outstanding tasks. Current Slide Reviewer code/tests and its README own current behavior._
 
 ## Goal
 
