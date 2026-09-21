@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reconciled: 8 September 2026._
+_Last reconciled: 21 September 2026 (repository-state checkpoint)._
 
 This index defines document authority. Historical plans/evidence may preserve old branch-era facts; they do not override current executable implementation or the living authorities below.
 
@@ -17,23 +17,11 @@ Use this order when sources disagree:
 
 ## Reconciliation baseline
 
-This reconciliation includes merged PR #147 for the Multi-System Runtime v2 foundation and the repository implementation of the subsequent Multi-System UX learner cutover. Use Git/GitHub for the exact current head and PR state.
+Repository `main` checkpoint: `f392752cb5fe6fc14d37257d9352fd611cc0f25b` (merged #193); refresh GitHub for the actual current HEAD. The **committed repository** migration sequence ends at `0031_learner_feedback.sql` at this checkpoint; `V1_DATA_MODEL.md` and the committed migration tree own the exact ledger. Runtime v2's migration `0026` and subsequent migrations `0027`–`0031` are repository facts, not proof of Production D1 application or Worker deployment.
 
-The implemented repository migration boundary remains:
+Relevant later merged repository work includes #159 (multi-System learner UX), #174 (Asset deduplication), #180–#181 (password recovery and Admin accounts), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library), and #192–#193 (Issue #191 cleanup/navigation optimization). Open Draft #190 remains the separate direct Case Editor Study Preview work; do not describe it as merged.
 
-```text
-0026_multi_system_active_review_scope_v2.sql
-```
-
-The immediately preceding learner-runtime migration remains `0025_learner_fsrs_admin_analytics_deletion.sql`, which owns the merged PR G durable monthly analytics and staged learner-account deletion schema/guards. Migration `0026` changes the Active Review scope/content guard for Runtime v2; the Multi-System UX tranche adds no migration and does not replace or obsolete PR G.
-
-`V1_DATA_MODEL.md`, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md`, `MULTI_SYSTEM_UX_IMPLEMENTATION.md`, and the committed migration tree own the exact current ledger/contracts for this area. A committed migration or repository UX implementation is not evidence that Production D1 has applied it or that the Worker has been deployed.
-
-Merged repository work represented by the living docs includes PR #137 (learner FSRS runtime cutover), PR #139 / PR F (Reset/Fresh, retention, learner Progress), PR #141 / PR G (Admin analytics and mature-account deletion readiness), PR #142 (dependency-install speedups), and PR #147 (Multi-System Runtime v2 foundation).
-
-Repository merge state is not Production deployment evidence.
-
-The GitHub repository is public. The application remains closed-enrollment/private; public signup is disabled on current repository code.
+The GitHub repository is public. The application remains closed-enrollment/private; public signup is disabled in the repository implementation.
 
 ## Living project-wide authorities
 
@@ -96,24 +84,18 @@ Relevant current authorities/records include:
 - `IMAGE_MANAGEMENT_V2_PLAN.md`
 - `REUSABLE_IMAGE_QUESTIONS.md`
 - `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`
-- `PERFORMANCE_AND_READ_MODEL_PLAN.md`
+- `PERFORMANCE_AND_READ_MODEL_PLAN.md` — retained August Admin read-model implementation record, not an exhaustive current performance backlog; Issue #191 and current code own the later audit/optimization status.
 - `CASE_EDITOR_SAVE_AND_NAVIGATION_UX_PLAN.md` — historical PR #161 planning/decision record; current implementation and validation state live in the executable code and PR handoff.
 
 Additional Study Topic authoring is retired. Historical Case Library PR #104 plans may still say `draft PR #104`; PR #104 is merged, so those files are implementation records rather than current status authorities.
 
 ## Authentication / Account Management
 
-`ACCOUNT_MANAGEMENT_PLAN.md` is product/design context. Its PR A/B implementation prompts are task handoffs, not proof of current-main behavior.
+`ACCOUNT_MANAGEMENT_PLAN.md` is retained product/design and historical implementation-planning context: its Draft #181 status banner reflects its earlier authoring period, **not current PR state**. Its PR A/B handoff documents likewise do not establish current behavior. Use current auth/Admin routes, tests, and `PASSWORD_RECOVERY.md` for implemented behavior.
 
-`PASSWORD_RECOVERY.md` is the current implementation and operator-configuration note for PR A's learner password recovery, transactional email boundary, reset-request guard, and Preview fail-closed behavior.
+PR #180 (password recovery/transactional email) and PR #181 (Production Admin account management) are merged on the reconciliation baseline. Remaining product plans require fresh PR/code verification; Production email configuration, migrations, deployment, and live verification remain separate.
 
-As of this reconciliation:
-
-- PR #180 merged the password recovery / transactional email implementation;
-- PR #181 is the in-progress Production Admin account-management implementation;
-- broader security/self-service polish remains PR C work.
-
-The Draft PR is not part of the reconciliation base merely because the design/prompts or implementation are present in the working branch. Production configuration, deployment, and live verification remain separate evidence.
+Migration `0031` and current learner/Admin Feedback implementation add Case-level learner feedback. `LEARNER_FEEDBACK_IMPLEMENTATION_PLAN.md` is a historical PR #186 planning record; inspect current feedback routes, DB helper and tests for executable behavior, not its earlier Draft language.
 
 ## Reviewed imports / Anki / slide review
 
@@ -131,6 +113,7 @@ Use:
   - `SLIDE_SOURCE_PREP_WINDOWS_LAUNCHER_UX_PLAN.md` — historical PR #168 Windows launcher UX implementation plan; executable behavior remains owned by the slide-source-prep implementation and README;
   - `SLIDE_SOURCE_PREP_PORTABLE_AI_HANDOFF_PLAN.md` — PR #168 portable extraction contract and prepared-output packaging plan; executable behavior remains owned by the slide-source-prep implementation and its portable artifact tests;
 - `tools/slide-import-review/README.md` — executable reviewer/finalizer workflow;
+- `SLIDE_IMPORT_REVIEWER_PERFORMANCE_UX_PLAN.md` — retained planning record for already-implemented lazy ZIP/cache/persistence work; its old eager-loading problem statement is historical. Issue #191 separately records conditional crop-source profiling.
 - `tools/slide-import-review/schemas/review-map-v1.schema.json` — authoritative strict review-map v1 schema.
 
 Executable validators/schemas outrank old extraction-prompt examples. Import Package v1 keeps `secondaryTopicIds` only as an empty compatibility field for current reviewed input.
