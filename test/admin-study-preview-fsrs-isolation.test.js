@@ -2,10 +2,11 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { createServer } from 'vite';
 
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
-import { buildAdminStudyPreview } from '../src/lib/server/learning/admin-study-preview.js';
+import { buildAdminStudyPreview, buildDirectAdminStudyPreview } from '../src/lib/server/learning/admin-study-preview.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 const LEARNER_RUNTIME_TABLES = Object.freeze([
@@ -20,7 +21,10 @@ const LEARNER_RUNTIME_TABLES = Object.freeze([
   'active_reviews',
   'active_review_questions',
   'active_review_assets',
-  'free_review_completion_receipts'
+  'free_review_completion_receipts',
+  'reviews',
+  'review_questions',
+  'review_assets'
 ]);
 
 function fixture() {
@@ -54,7 +58,7 @@ function fixture() {
     },
     async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
   };
-  return { sqlite, db: createDb(d1) };
+  return { sqlite, db: createDb(d1), d1 };
 }
 
 function learnerCounts(sqlite) {
@@ -66,6 +70,13 @@ function learnerCounts(sqlite) {
 
 function totalChanges(sqlite) {
   return Number(sqlite.prepare('SELECT total_changes() AS n').get()?.n ?? -1);
+}
+
+function learnerStateSnapshot(sqlite) {
+  return Object.fromEntries(LEARNER_RUNTIME_TABLES.map((table) => [
+    table,
+    sqlite.prepare(`SELECT * FROM \`${table}\` ORDER BY rowid`).all()
+  ]));
 }
 
 test('Admin Study Preview resolves current learner content without mutating any learner FSRS/Free state', async () => {
@@ -93,5 +104,89 @@ test('Admin Study Preview resolves current learner content without mutating any 
     assert.deepEqual(learnerCounts(sqlite), beforeCounts);
   } finally {
     sqlite.close();
+  }
+});
+
+test('direct Case Editor Study Preview resolves the exact Case without mutating learner state', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const beforeCounts = learnerCounts(sqlite);
+    const beforeChanges = totalChanges(sqlite);
+
+    const preview = await buildDirectAdminStudyPreview({
+      db,
+      caseId: 'seed-anterior-a',
+      contentMode: 'original',
+      rng: () => 0
+    });
+
+    assert.equal(preview.candidate.id, 'seed-anterior-a');
+    assert.equal(preview.snapshot.case.id, 'seed-anterior-a');
+    assert.ok(preview.snapshot.questions.length > 0);
+    assert.equal(totalChanges(sqlite), beforeChanges, 'direct preview resolution must execute no database writes');
+    assert.deepEqual(learnerCounts(sqlite), beforeCounts);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('direct Case Editor Study Preview fails instead of falling back to another Case', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    await assert.rejects(
+      () => buildDirectAdminStudyPreview({ db, caseId: 'missing-case', contentMode: 'original', rng: () => 0 }),
+      /not currently eligible for learner study preview/
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('direct Study Preview route load resolves the exact Case, preserves return context, and stays read-only', async () => {
+  const fixtureValue = fixture();
+  const vite = await createServer();
+  try {
+    const route = await vite.ssrLoadModule('/src/routes/admin/study-preview/+page.server.js');
+    const returnQuery = 'q=ecg&sort=topic-desc&lifecycle=active&page=4';
+    const url = new URL('http://localhost/admin/study-preview');
+    url.searchParams.set('mode', 'direct');
+    url.searchParams.set('caseId', 'seed-anterior-a');
+    url.searchParams.set('return_query', returnQuery);
+    const before = learnerStateSnapshot(fixtureValue.sqlite);
+    const beforeChanges = totalChanges(fixtureValue.sqlite);
+
+    const data = await route.load({ platform: { env: { DB: fixtureValue.d1 } }, url });
+
+    assert.equal(data.directMode, true);
+    assert.equal(data.directCaseId, 'seed-anterior-a');
+    assert.equal(data.preview.candidate.id, 'seed-anterior-a');
+    assert.equal(data.preview.snapshot.case.id, 'seed-anterior-a');
+    assert.equal(new URL(data.directBackHref, url).searchParams.get('return_query'), returnQuery);
+    assert.equal(totalChanges(fixtureValue.sqlite), beforeChanges);
+    assert.deepEqual(learnerStateSnapshot(fixtureValue.sqlite), before);
+  } finally {
+    await vite.close();
+    fixtureValue.sqlite.close();
+  }
+});
+
+test('direct Study Preview route renders expected unavailability but propagates unexpected failures', async () => {
+  const fixtureValue = fixture();
+  const vite = await createServer();
+  try {
+    const route = await vite.ssrLoadModule('/src/routes/admin/study-preview/+page.server.js');
+    const missingUrl = new URL('http://localhost/admin/study-preview?mode=direct&caseId=missing-case');
+    const unavailable = await route.load({ platform: { env: { DB: fixtureValue.d1 } }, url: missingUrl });
+    assert.equal(unavailable.preview, null);
+    assert.match(unavailable.directError, /not currently eligible for learner study preview/);
+
+    const brokenDb = { prepare() { throw new Error('unexpected-preview-database-failure'); } };
+    await assert.rejects(
+      () => route.load({ platform: { env: { DB: brokenDb } }, url: missingUrl }),
+      /unexpected-preview-database-failure/
+    );
+  } finally {
+    await vite.close();
+    fixtureValue.sqlite.close();
   }
 });

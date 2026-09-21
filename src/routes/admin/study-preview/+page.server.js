@@ -1,11 +1,17 @@
 import { error } from '@sveltejs/kit';
 
+import { caseEditorHref, normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 import { createDb } from '$lib/server/db/index.js';
+import { ActiveReviewContentError } from '$lib/server/db/active-review-content.js';
 import {
   listSystemStudySelectionSystems,
   resolveSystemStudySelection
 } from '$lib/server/db/study-navigation.ts';
-import { buildAdminStudyPreview } from '$lib/server/learning/admin-study-preview.js';
+import {
+  AdminStudyPreviewUnavailableError,
+  buildAdminStudyPreview,
+  buildDirectAdminStudyPreview
+} from '$lib/server/learning/admin-study-preview.js';
 
 /**
  * @param {{topics:{id:string}[],tags:{id:string}[]}} system
@@ -18,14 +24,53 @@ function allRoutes(system) {
   ];
 }
 
+/** @param {unknown} cause */
+function isExpectedDirectPreviewFailure(cause) {
+  return cause instanceof AdminStudyPreviewUnavailableError || cause instanceof ActiveReviewContentError;
+}
+
 export async function load({ platform, url }) {
   if (!platform?.env?.DB) error(503, 'Admin Study Preview database is not configured.');
   const db = createDb(platform.env.DB);
-  const systems = await listSystemStudySelectionSystems(db);
   const requestedSystemId = String(url.searchParams.get('systemId') ?? '').trim();
+  const requestedCaseId = String(url.searchParams.get('caseId') ?? '').trim();
+  const directMode = url.searchParams.get('mode') === 'direct';
+
+  if (directMode) {
+    const directReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
+    let preview = null;
+    let directError = requestedCaseId ? null : 'Open this preview from a Production Case Editor so the exact Case can be resolved.';
+    if (requestedCaseId) {
+      try {
+        preview = await buildDirectAdminStudyPreview({
+          db,
+          caseId: requestedCaseId,
+          contentMode: 'original',
+          rng: () => 0
+        });
+      } catch (cause) {
+        if (!isExpectedDirectPreviewFailure(cause)) throw cause;
+        directError = cause instanceof Error ? cause.message : 'This Case cannot be previewed under the current learner-content rules.';
+      }
+    }
+    return {
+      directMode: true,
+      directCaseId: requestedCaseId,
+      directBackHref: requestedCaseId
+        ? caseEditorHref(`/admin/cases/${encodeURIComponent(requestedCaseId)}`, directReturnQuery)
+        : '/admin/cases',
+      directError,
+      preview,
+      systems: [],
+      selectedSystemId: '',
+      contentMode: 'original',
+      candidates: []
+    };
+  }
+
+  const systems = await listSystemStudySelectionSystems(db);
   const selectedSystem = systems.find((system) => system.id === requestedSystemId) ?? null;
   const contentMode = url.searchParams.get('contentMode') === 'expanded' ? 'expanded' : 'original';
-  const requestedCaseId = String(url.searchParams.get('caseId') ?? '').trim();
 
   if (!selectedSystem) {
     return { systems, selectedSystemId: '', contentMode, candidates: [], preview: null };

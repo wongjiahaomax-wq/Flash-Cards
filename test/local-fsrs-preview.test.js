@@ -436,7 +436,9 @@ test('Admin Study opens learner Study while dedicated local FSRS preview links s
   assert.match(adminLayout, /<a href="\/study">Study<\/a>/);
   assert.match(adminDashboard, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
   assert.match(casePage, /let studyPreviewHref = \$derived\.by/);
-  assert.match(casePage, /const \{ learnerStudyPreviewHref = '\/study' \} = data/);
+  assert.match(casePage, /mode=direct&caseId=/);
+  assert.match(casePage, /encodeURIComponent\(caseId\)/);
+  assert.doesNotMatch(casePage, /learnerStudyPreviewHref/);
   assert.match(casePage, /<CaseEditorHeader[^>]*\{studyPreviewHref\}/);
   assert.match(caseHeader, /href=\{studyPreviewHref \?\? '\/study'\}>Preview in Study/);
   assert.match(casePreview, /href=\{studyPreviewHref \?\? '\/study'\}>Open Study preview/);
