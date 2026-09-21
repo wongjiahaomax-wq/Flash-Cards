@@ -110,6 +110,12 @@
     }
   }
 
+  function dismissCompletionSummary() {
+    completionSummary = null;
+    runMessage = '';
+    showAlternateLauncher = false;
+  }
+
   function readLauncherMode() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('launcher') === 'classic' || params.get('layout') === 'classic') return 'classic';
@@ -143,7 +149,7 @@
       browserRunState = 'none';
       storageMessage = 'Browser storage is unavailable. Study can continue, but this session may not be resumable after leaving the page.';
     }
-    runMessage = runStatusMessage(window.location.search) || storageMessage;
+    runMessage = completionSummary ? '' : runStatusMessage(window.location.search) || storageMessage;
     queueMicrotask(() => {
       if (browserRunState === 'none') refreshEligibleCount();
     });
@@ -700,7 +706,7 @@
     </section>
   {/if}
 
-  {#if (runMessage || form?.message) && !completionSummary}
+  {#if runMessage || form?.message}
     <p class:form-error={Boolean(form?.message)} class="status-message" role={form?.message ? 'alert' : 'status'}>{form?.message || runMessage}</p>
   {/if}
 
@@ -713,8 +719,8 @@
         {#if completionSummary.repeatCount != null}<p class="muted">Repeats completed: {completionSummary.repeatCount}</p>{/if}
       </div>
       <div class="run-actions">
-        <button class="button primary" type="button" onclick={() => { completionSummary = null; showAlternateLauncher = false; }}>Start another session</button>
-        <a class="button" href="/study">Return to Study</a>
+        <button class="button primary" type="button" onclick={dismissCompletionSummary}>Start another session</button>
+        <a class="button" href="/study" onclick={dismissCompletionSummary}>Return to Study</a>
       </div>
     </section>
   {/if}
