@@ -44,7 +44,8 @@
         <span><strong>{data.progress.ratings.easy}</strong> Easy</span>
       </div>
       {#if data.progress.systems.length}
-        <div class="table-wrap"><table><thead><tr><th>System</th><th>Coverage</th><th>Due</th><th>Not due</th><th>Scheduled Reviews</th></tr></thead><tbody>{#each data.progress.systems as system}<tr><th>{system.systemName}</th><td>{system.enteredSrs} / {system.eligibleCases}</td><td>{system.due}</td><td>{system.notDue}</td><td>{system.scheduledCompleted}</td></tr>{/each}</tbody></table></div>
+        <div class="table-wrap system-table"><table><thead><tr><th>System</th><th>Coverage</th><th>Due</th><th>Not due</th><th>Scheduled Reviews</th></tr></thead><tbody>{#each data.progress.systems as system}<tr><th>{system.systemName}</th><td>{system.enteredSrs} / {system.eligibleCases}</td><td>{system.due}</td><td>{system.notDue}</td><td>{system.scheduledCompleted}</td></tr>{/each}</tbody></table></div>
+        <div class="system-cards" aria-label="Progress by System">{#each data.progress.systems as system}<article class="system-card"><h3>{system.systemName}</h3><dl><div><dt>Coverage</dt><dd>{system.enteredSrs} / {system.eligibleCases}</dd></div><div><dt>Due</dt><dd>{system.due}</dd></div><div><dt>Not due</dt><dd>{system.notDue}</dd></div><div><dt>Scheduled Reviews</dt><dd>{system.scheduledCompleted}</dd></div></dl></article>{/each}</div>
       {/if}
       <section class="history-block" aria-labelledby="history-title">
         <h2 id="history-title">Recent Scheduled activity</h2>
@@ -76,6 +77,13 @@
   .table-wrap { overflow-x:auto; border:1px solid #eaecf0; border-radius:10px; }
   table { width:100%; border-collapse:collapse; min-width:640px; }
   th,td { padding:.65rem .75rem; text-align:left; border-bottom:1px solid #eaecf0; }
+  .system-cards { display:none; gap:.65rem; }
+  .system-card { display:grid; gap:.65rem; padding:.85rem; border:1px solid #eaecf0; border-radius:10px; background:#fbfcfe; }
+  .system-card h3 { margin:0; font-size:1rem; }
+  .system-card dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; margin:0; }
+  .system-card dl > div { display:grid; gap:.15rem; }
+  .system-card dt { color:#667085; font-size:.78rem; }
+  .system-card dd { margin:0; color:#172033; font-weight:700; }
   .history-block { display:grid; gap:.8rem; }
   .history-list { display:grid; gap:.45rem; margin:0; padding:0; list-style:none; }
   .history-list li { display:flex; justify-content:space-between; gap:1rem; padding:.65rem .75rem; border:1px solid #eaecf0; border-radius:10px; }
@@ -83,5 +91,5 @@
   time { color:#667085; font-size:.8rem; }
   a:focus-visible { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
   @media (max-width:900px) { .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-  @media (max-width:620px) { .page-header,.progress-heading,.history-list li { display:grid; } .retention-note { text-align:left; } .metrics { grid-template-columns:1fr; } }
+  @media (max-width:620px) { .page-header,.progress-heading,.history-list li { display:grid; } .retention-note { text-align:left; } .metrics { grid-template-columns:1fr; } .system-table { display:none; } .system-cards { display:grid; } }
 </style>

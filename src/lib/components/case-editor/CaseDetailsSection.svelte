@@ -5,6 +5,7 @@
   import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
+  import MarkdownField from '$lib/components/MarkdownField.svelte';
 
   let { selectedCase, primaryTopic, editorLayout, coordinator = null, caseLibraryReturnQuery = '' } = $props();
   const serverSnapshot = (value) => ({
@@ -157,10 +158,17 @@
     </div>
 
     <div class="case-main-layout">
-      <label class="vignette-field">
-        <span>Case stem / vignette <span class="muted field-helper">Optional</span></span>
-        <textarea name="vignette_md" bind:value={draft.vignetteMd} oninput={() => coordinator?.refresh()} rows="6" maxlength="5000"></textarea>
-      </label>
+      <div class="vignette-field">
+        <MarkdownField
+          label="Case stem / vignette · Optional"
+          id="case-vignette-md"
+          name="vignette_md"
+          value={draft.vignetteMd}
+          rows={6}
+          maxlength={5000}
+          onvaluechange={(value) => { draft.vignetteMd = value; coordinator?.refresh(); }}
+        />
+      </div>
 
       <aside class="review-setup" aria-labelledby="review-setup-heading">
         <div class="review-setup-heading">

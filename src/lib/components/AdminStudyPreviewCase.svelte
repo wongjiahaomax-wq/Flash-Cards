@@ -1,4 +1,6 @@
 <script>
+  import MarkdownContent from '$lib/components/MarkdownContent.svelte';
+
   let { preview, backHref, errorMessage = '' } = $props();
   let revealed = $state(false);
   /** @type {any} */
@@ -59,7 +61,7 @@
     <header class="case-header">
       <div class="case-meta"><span>Admin Study Preview</span><span class="badge">Original questions · curated for this Case</span></div>
       <h1>{revealed ? preview.snapshot.case.title : 'Case review'}</h1>
-      {#if preview.snapshot.case.vignetteMd}<p>{preview.snapshot.case.vignetteMd}</p>{/if}
+      {#if preview.snapshot.case.vignetteMd}<MarkdownContent class="case-vignette" source={preview.snapshot.case.vignetteMd} />{/if}
     </header>
 
     {#if preview.snapshot.assets.length > 0}
@@ -82,7 +84,7 @@
                   <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
                 </button>
               </div>
-              {#if asset.captionSnapshotMd}<figcaption>{asset.captionSnapshotMd}</figcaption>{/if}
+              {#if asset.captionSnapshotMd}<figcaption><MarkdownContent source={asset.captionSnapshotMd} /></figcaption>{/if}
             </figure>
           {/each}
         </div>
@@ -91,7 +93,7 @@
 
     {#if inspectedAsset}
       <div class="asset-modal-backdrop" role="presentation" onclick={handleImageDialogClick}>
-        <div class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" onclick={(event) => event.stopPropagation()}>
+        <div class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title" tabindex="-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
           <div class="asset-dialog-panel">
             <div class="asset-dialog-header">
               <div>
@@ -103,7 +105,7 @@
             <div class="asset-dialog-image-wrap">
               <img class="asset-dialog-image" src={inspectedAsset.imageUrl} alt={inspectedAsset.altTextSnapshot ?? inspectedAsset.captionSnapshotMd ?? 'Teaching image'} />
             </div>
-            {#if inspectedAsset.captionSnapshotMd}<p class="asset-dialog-caption">{inspectedAsset.captionSnapshotMd}</p>{/if}
+            {#if inspectedAsset.captionSnapshotMd}<div class="asset-dialog-caption"><MarkdownContent source={inspectedAsset.captionSnapshotMd} /></div>{/if}
           </div>
         </div>
       </div>
@@ -122,11 +124,11 @@
           <article class="question-card">
             <div class="question-number">{index + 1}</div>
             <div class="question-content">
-              <h3>{question.promptSnapshotMd}</h3>
+              <MarkdownContent class="question-prompt" source={question.promptSnapshotMd} />
               {#if revealed}
                 <div class="answer-block">
                   <p class="answer-label">Answer</p>
-                  <p>{question.answerSnapshotMd}</p>
+                  <MarkdownContent source={question.answerSnapshotMd} />
                 </div>
               {:else}
                 <p class="muted think-prompt">Think through your answer before revealing.</p>
@@ -168,9 +170,9 @@
   .preview-nav-status { display:flex; align-items:center; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
   .preview-nav-divider { width:1px; height:1.1rem; background:#d0d5dd; }
   .case-header { display:grid; gap:.75rem; padding-bottom:.5rem; }
-  .case-header h1,.case-header p { margin:0; }
+  .case-header h1 { margin:0; }
   .case-header h1 { font-size:clamp(1.8rem,4vw,2.5rem); line-height:1.12; }
-  .case-header > p { max-width:760px; color:#475467; line-height:1.65; }
+  :global(.case-header .case-vignette) { max-width:760px; color:#475467; line-height:1.65; }
   .case-meta { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:#667085; font-size:.9rem; font-weight:600; }
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
@@ -201,10 +203,10 @@
   .question-list { display:grid; gap:.85rem; }
   .question-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:1rem; padding:1.1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .question-number { display:grid; place-items:center; width:2rem; height:2rem; border-radius:999px; background:#172033; color:#fff; font-weight:700; }
-  .question-content h3 { margin:.25rem 0 0; font-size:1.05rem; line-height:1.45; }
+  :global(.question-prompt) { font-size:1.05rem; font-weight:700; }
   .think-prompt { margin:.65rem 0 0; font-size:.9rem; }
   .answer-block { display:grid; gap:.4rem; margin-top:.9rem; padding-top:.9rem; border-top:1px solid #e6eaf0; }
-  .answer-block p { margin:0; line-height:1.55; }
+  .answer-block :global(p) { margin:0; line-height:1.55; }
   .answer-label { color:#344054; font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
   .review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(23,32,51,.1); }
   .review-actions p { margin:.25rem 0 0; font-size:.9rem; }

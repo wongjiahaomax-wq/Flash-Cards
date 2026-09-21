@@ -121,7 +121,19 @@ function expressionAttribute(tag, name) {
 
 /** @param {string} tag */
 function useAction(tag) {
-  return /\buse:([A-Za-z_$][\w$]*)\b/.exec(tag)?.[1] ?? null;
+  return /\buse:([A-Za-z_$][\w$]*)\b/.exec(tag)?.[1]
+    ?? /\btextareaAction=\{([A-Za-z_$][\w$]*)\}/.exec(tag)?.[1]
+    ?? null;
+}
+
+/** @param {string} source */
+function fieldTags(source) {
+  return [...tags(source, 'textarea'), ...tags(source, 'MarkdownField')];
+}
+
+/** @param {string} tag */
+function fieldRows(tag) {
+  return attribute(tag, 'rows') ?? expressionAttribute(tag, 'rows') ?? /\brows=\{([^}]+)\}/.exec(tag)?.[1] ?? null;
 }
 
 /** @param {string} tag */
@@ -213,7 +225,7 @@ function formBodiesWithClass(source, className) {
 function imageAutoGrowLimit(source, formClass) {
   const forms = formBodiesWithClass(source, formClass);
   assert.ok(forms.length > 0, `Missing ${formClass} image-question forms.`);
-  const fields = forms.flatMap((form) => tags(form, 'textarea')).filter((tag) => {
+  const fields = forms.flatMap((form) => fieldTags(form)).filter((tag) => {
     const name = attribute(tag, 'name');
     return name === 'prompt_md' || name === 'answer_md';
   });
@@ -357,11 +369,11 @@ test('Case question Prompt and Answer fields start comparably and long Answers e
   const formStart = questions.indexOf('<form id={`question-edit-');
   const formEnd = questions.indexOf('</form>', formStart);
   const form = questions.slice(formStart, formEnd);
-  const prompt = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'prompt_md');
-  const answer = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md');
+  const prompt = fieldTags(form).find((tag) => attribute(tag, 'name') === 'prompt_md');
+  const answer = fieldTags(form).find((tag) => attribute(tag, 'name') === 'answer_md');
   assert.ok(prompt && answer);
-  const promptRows = Number(requiredText(attribute(prompt, 'rows'), 'Prompt must declare usable initial editing rows.'));
-  const answerRows = Number(requiredText(attribute(answer, 'rows'), 'Answer must declare usable initial editing rows.'));
+  const promptRows = Number(requiredText(fieldRows(prompt), 'Prompt must declare usable initial editing rows.'));
+  const answerRows = Number(requiredText(fieldRows(answer), 'Answer must declare usable initial editing rows.'));
   assert.ok(Number.isInteger(promptRows) && promptRows > 1, 'Prompt needs more than a single-line editing surface.');
   assert.equal(answerRows, promptRows, 'Prompt and Answer must start with comparable editing space.');
   const answerAction = requiredText(useAction(answer), 'Long Case Answers must use bounded auto-grow.');
@@ -369,7 +381,7 @@ test('Case question Prompt and Answer fields start comparably and long Answers e
 });
 
 test('Image-specific Prompt and Answer fields use a smaller contextual bounded auto-grow behavior', () => {
-  const mainAnswer = tags(questions, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md' && useAction(tag));
+  const mainAnswer = fieldTags(questions).find((tag) => attribute(tag, 'name') === 'answer_md' && useAction(tag));
   assert.ok(mainAnswer);
   const mainLimit = boundedAutoGrowLimit(questions, requiredText(useAction(mainAnswer), 'Case Answer auto-grow action must remain reachable.'));
   assert.ok(imageAutoGrowLimit(images, 'image-question-form') < mainLimit);

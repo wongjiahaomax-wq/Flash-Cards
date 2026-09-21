@@ -35,6 +35,8 @@
   /** @type {'unknown'|'none'|'resumable'} */
   let browserRunState = $state('unknown');
   let showAlternateLauncher = $state(false);
+  let launcherMode = $state(/** @type {any} */ ('modern'));
+  let completionSummary = $state(/** @type {any} */ (null));
   let runMessage = $state('');
   let opening = $state(false);
   let planning = $state(false);
@@ -45,6 +47,8 @@
   let countMessage = $state('Select one or more Systems to calculate the combined unique Case count.');
   /** @type {HTMLFormElement|undefined} */
   let planForm = $state();
+  /** @type {HTMLFormElement|undefined} */
+  let quickStartForm = $state();
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let countTimer;
   const countController = createStudyCountController((formData) => fetch('/study/api/count', {
@@ -83,10 +87,63 @@
     return '';
   }
 
+  /** @param {string} runId */
+  function completionStorageKey(runId) {
+    return `flash-cards:study-completion:${runId}`;
+  }
+
+  function consumeCompletionSummary() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('runStatus') !== 'complete') return null;
+    const runId = params.get('completionRun');
+    const token = params.get('completionToken');
+    if (!runId || !token) return null;
+    try {
+      const key = completionStorageKey(runId);
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const stored = JSON.parse(raw);
+      sessionStorage.removeItem(key);
+      return stored?.token === token && stored.summary?.runId === runId ? stored.summary : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function readLauncherMode() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('launcher') === 'classic' || params.get('layout') === 'classic') return 'classic';
+    try {
+      return localStorage.getItem(`flash-cards:study-launcher:${data.user.id}`) === 'classic' ? 'classic' : 'modern';
+    } catch {
+      return 'modern';
+    }
+  }
+
+  /** @param {'modern'|'classic'} mode */
+  function setLauncherMode(mode) {
+    launcherMode = mode;
+    showAlternateLauncher = false;
+    try {
+      localStorage.setItem(`flash-cards:study-launcher:${data.user.id}`, mode);
+    } catch {
+      // Browser storage is a convenience; Study remains usable without it.
+    }
+  }
+
   onMount(() => {
-    browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
-    browserRunState = browserRun ? 'resumable' : 'none';
-    runMessage = runStatusMessage(window.location.search);
+    launcherMode = readLauncherMode();
+    completionSummary = consumeCompletionSummary();
+    let storageMessage = '';
+    try {
+      browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
+      browserRunState = browserRun ? 'resumable' : 'none';
+    } catch {
+      browserRun = null;
+      browserRunState = 'none';
+      storageMessage = 'Browser storage is unavailable. Study can continue, but this session may not be resumable after leaving the page.';
+    }
+    runMessage = runStatusMessage(window.location.search) || storageMessage;
     queueMicrotask(() => {
       if (browserRunState === 'none') refreshEligibleCount();
     });
@@ -643,20 +700,68 @@
     </section>
   {/if}
 
-  {#if runMessage || form?.message}
+  {#if (runMessage || form?.message) && !completionSummary}
     <p class:form-error={Boolean(form?.message)} class="status-message" role={form?.message ? 'alert' : 'status'}>{form?.message || runMessage}</p>
   {/if}
 
-  {#if canShowNewRunLauncher()}
+  {#if completionSummary}
+    <section class="completion-card" aria-labelledby="completion-heading">
+      <div>
+        <p class="eyebrow">Session complete</p>
+        <h2 id="completion-heading">{completionSummary.mode} finished</h2>
+        <p class="muted">You completed <strong>{completionSummary.completedDistinct}</strong> distinct {completionSummary.completedDistinct === 1 ? 'Case' : 'Cases'} in this session.</p>
+        {#if completionSummary.repeatCount != null}<p class="muted">Repeats completed: {completionSummary.repeatCount}</p>{/if}
+      </div>
+      <div class="run-actions">
+        <button class="button primary" type="button" onclick={() => { completionSummary = null; showAlternateLauncher = false; }}>Start another session</button>
+        <a class="button" href="/study">Return to Study</a>
+      </div>
+    </section>
+  {/if}
+
+  {#if canShowNewRunLauncher() && launcherMode === 'modern' && !showAlternateLauncher}
+    <section class="modern-launcher" aria-labelledby="modern-launcher-heading">
+      <div class="launcher-mode-row">
+        <div>
+          <p class="eyebrow">Modern launcher</p>
+          <h2 id="modern-launcher-heading">Start a focused Study session</h2>
+          <p class="muted">Quick Start uses Scheduled Study across all eligible Systems and starts with 10 distinct Cases. You can customize the scope or use Classic at any time.</p>
+        </div>
+        <div class="launcher-switch" role="group" aria-label="Study launcher layout">
+          <button class="button primary" type="button" aria-pressed={launcherMode === 'modern'} onclick={() => setLauncherMode('modern')}>Modern</button>
+          <button class="button" type="button" aria-pressed={launcherMode === 'classic'} onclick={() => setLauncherMode('classic')}>Classic</button>
+        </div>
+      </div>
+      <form bind:this={quickStartForm} method="POST" action="?/plan" use:enhance={startPlannedRun} class="quick-start-form">
+        {#each studySystems as system}<input type="hidden" name="system" value={system.id} />{/each}
+        <input type="hidden" name="studyMode" value="scheduled" />
+        <input type="hidden" name="runSize" value="10" />
+        {#if studySystems.length > 0}
+          <button class="button primary quick-start-button" type="submit" disabled={planning || opening}>{planning ? 'Starting…' : 'Quick Start · 10 Cases →'}</button>
+        {:else}
+          <p class="muted">No eligible Systems are currently available for Study.</p>
+        {/if}
+      </form>
+      <div class="modern-launcher-actions">
+        <button class="button" type="button" onclick={openAlternateLauncher} disabled={planning || opening}>Customize session</button>
+        <button class="text-button" type="button" onclick={() => setLauncherMode('classic')}>Use Classic launcher</button>
+      </div>
+    </section>
+  {/if}
+
+  {#if canShowNewRunLauncher() && (launcherMode === 'classic' || showAlternateLauncher)}
   <section class="chooser-heading">
     <div>
-      <p class="eyebrow">{browserRun ? 'Alternate launcher' : 'Start a study session'}</p>
+      <p class="eyebrow">{browserRun ? 'Alternate launcher' : launcherMode === 'classic' ? 'Classic launcher' : 'Customize session'}</p>
       <h2>{browserRun ? 'Start a different Study session' : 'Choose Systems and scope'}</h2>
     </div>
     <div class="chooser-heading-actions">
       <p class="muted">Selecting a System means all eligible content in that System unless you explicitly narrow it.</p>
-      {#if browserRun}
+      {#if browserRun || showAlternateLauncher}
         <button class="button" type="button" onclick={closeAlternateLauncher}>Cancel</button>
+      {/if}
+      {#if !browserRun && launcherMode === 'classic'}
+        <button class="button" type="button" onclick={() => setLauncherMode('modern')}>Modern launcher</button>
       {/if}
     </div>
   </section>
@@ -858,7 +963,7 @@
   .intro { max-width:760px; margin-bottom:0; line-height:1.6; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .account-actions,.active-actions,.run-actions { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
-  .active-card,.run-card,.run-options-card,.deletion-card,.ownership-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .active-card,.run-card,.run-options-card,.deletion-card,.ownership-card,.completion-card,.modern-launcher { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .active-card { border-color:#b7c4d5; box-shadow:0 4px 14px rgba(23,32,51,.06); }
   .active-card p,.run-card p { margin:.35rem 0 0; }
   .deletion-card { border-color:#f2c7c2; background:#fff9f8; }
@@ -868,6 +973,18 @@
   .metrics { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.75rem; }
   .metrics span { padding:.4rem .6rem; border-radius:999px; background:#eef2f6; color:#475467; font-size:.85rem; }
   .ownership-card { border-style:dashed; background:#f8fafc; }
+  .completion-card { border-color:#abefc6; background:#f6fef9; }
+  .completion-card h2,.modern-launcher h2 { margin:.2rem 0 .35rem; }
+  .completion-card p { margin:.25rem 0 0; }
+  .modern-launcher { display:grid; align-items:stretch; gap:1.1rem; border-color:#98a2b3; box-shadow:0 8px 24px rgb(16 24 40 / 7%); }
+  .launcher-mode-row { display:flex; align-items:start; justify-content:space-between; gap:1rem; }
+  .launcher-mode-row > div:first-child { max-width:720px; }
+  .launcher-mode-row p { margin:.35rem 0 0; line-height:1.5; }
+  .launcher-switch { display:flex; gap:.4rem; flex-wrap:wrap; }
+  .quick-start-form { display:flex; align-items:center; gap:.8rem; }
+  .quick-start-button { min-width:12rem; }
+  .modern-launcher-actions { display:flex; align-items:center; gap:.85rem; flex-wrap:wrap; }
+  .text-button { padding:0; border:0; background:transparent; color:#475467; font:inherit; text-decoration:underline; cursor:pointer; }
   .status-message { margin:0; padding:.8rem 1rem; border-radius:10px; background:#f8fafc; color:#344054; }
   .chooser-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .chooser-heading-actions { display:flex; align-items:end; justify-content:flex-end; gap:.75rem; }
@@ -925,12 +1042,15 @@
   .start-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
   .start-row p { margin:0; max-width:700px; }
   @media (max-width:820px) {
-    .study-header,.chooser-heading,.active-card,.run-card,.deletion-card,.ownership-card,.start-row,.combined-count { display:grid; align-items:stretch; }
+    .study-header,.chooser-heading,.active-card,.run-card,.deletion-card,.ownership-card,.completion-card,.launcher-mode-row,.start-row,.combined-count { display:grid; align-items:stretch; }
     .account-actions,.active-actions,.run-actions { justify-content:flex-start; }
     .chooser-heading-actions { display:grid; justify-items:start; }
     .chooser-heading-actions p,.count-detail { text-align:left; justify-items:start; }
     .scope-actions { justify-content:flex-start; }
     .run-options-card,.system-grid,.secondary-links { grid-template-columns:1fr; }
+    .launcher-switch { justify-content:flex-start; }
+    .quick-start-form { display:grid; align-items:stretch; }
+    .quick-start-button { width:100%; }
     .mode-set { grid-template-columns:1fr; }
     .group-toolbar { display:grid; }
   }

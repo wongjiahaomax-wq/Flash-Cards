@@ -75,6 +75,7 @@
   "dependencies": {
     "better-auth": "1.6.25",
     "drizzle-orm": "0.45.2",
+    "marked": "15.0.12",
     "ts-fsrs": "5.4.2"
   },
   "devDependencies": {

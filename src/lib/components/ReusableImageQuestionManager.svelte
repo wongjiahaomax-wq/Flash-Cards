@@ -1,5 +1,6 @@
 <script>
   import { registerCaseEditorForm } from '$lib/case-editor-mutation.js';
+  import MarkdownField from '$lib/components/MarkdownField.svelte';
 
   /** @typedef {{ id: string, assetId: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableImageQuestion */
   /** @typedef {{ assetId: string, stimulusOptionId: string | null, total: number, used: number, available: number, questions: ReusableImageQuestion[] }} ReusableImageQuestionSummary */
@@ -71,8 +72,8 @@
       <form method="POST" action="?/createReusableImageQuestion" class="form-grid">
         <input type="hidden" name="case_id" value={caseId} />
         <input type="hidden" name="asset_id" value={assetId} />
-        <label>Question prompt<textarea name="prompt_md" rows="2" required maxlength="2000"></textarea></label>
-        <label>Canonical answer<textarea name="answer_md" rows="2" required maxlength="10000"></textarea></label>
+        <MarkdownField label="Question prompt" id={`reusable-new-prompt-${assetId}`} name="prompt_md" rows={2} required maxlength={2000} />
+        <MarkdownField label="Canonical answer" id={`reusable-new-answer-${assetId}`} name="answer_md" rows={2} required maxlength={10000} />
         <div><button class="button small" type="submit">Create reusable question</button></div>
       </form>
     </details>
@@ -86,7 +87,7 @@
               <input type="hidden" name="case_id" value={caseId} />
               <input type="hidden" name="asset_question_id" value={question.id} />
               <strong>{question.promptMd}</strong>
-              <label>Canonical answer<textarea name="answer_md" rows="2" required maxlength="10000">{question.answerMd}</textarea></label>
+              <MarkdownField label="Canonical answer" id={`reusable-answer-${question.id}`} name="answer_md" value={question.answerMd} rows={2} required maxlength={10000} />
               <div><button class="button small" type="submit">Save canonical answer</button></div>
             </form>
           {/each}
