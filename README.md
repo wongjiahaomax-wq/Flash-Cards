@@ -4,21 +4,21 @@ Flash-Cards is a case-based medical learning application built with SvelteKit, C
 
 **Repository visibility and application access are different things:** this GitHub repository is public; the deployed application is closed-enrollment/private and does not expose public self-registration.
 
-_Last project-wide documentation reconciliation: 5 September 2026._
+_Last project-wide documentation reconciliation: 21 September 2026 (repository checkpoint `f392752cb5fe6fc14d37257d9352fd611cc0f25b`)._
 
 ## Current repository baseline
 
 Current `main` includes:
 
-- Production/Admin content management for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags, reviewed imports, learner retention controls, and learner analytics;
+- Production Admin content management for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags and reviewed imports, plus learner Feedback, Accounts, retention controls, and analytics;
 - one canonical Primary Topic per current Case plus zero or more Case Tags;
-- System → Topic / exposed Tag / All learner navigation semantics;
+- multi-System Study selection with whole-System or narrowed Topic/curated-Tag routes and deduplicated Case eligibility;
 - fixed images plus optional Alternative Sets with explicit Original semantics;
 - Case-, stimulus-, Topic-, Tag-, and exact-Asset-scoped question sources;
 - strict Import Package v1 and local slide-review/finalizer tooling;
 - a local production-like D1/R2 development replica;
-- the learner FSRS runtime cutover with Scheduled Study, Free Study, Again/Hard/Good/Easy ratings, 5/10/20/All run sizes, active Review snapshots, Reset Progress, Fresh FSRS Start, learner Progress, detailed-history retention, durable monthly Admin analytics, and retry-safe mature-account deletion;
-- repository migrations through `0025_learner_fsrs_admin_analytics_deletion.sql`;
+- the learner FSRS runtime cutover with Scheduled Study, Free Study, Again/Hard/Good/Easy ratings, 5/10/20/All run sizes, active Review snapshots, Reset Progress, Fresh FSRS Start, self-service study-data deletion, learner Progress, detailed-history retention, durable monthly Admin analytics, Case-level feedback, and retry-safe mature-account deletion;
+- committed repository migrations through `0031_learner_feedback.sql` (see `docs/V1_DATA_MODEL.md` for the exact ledger);
 - repository-owned coding-agent routing, Draft-fast / Ready-full validation, specialized FSRS checks, dependency reuse via `npm run deps:ensure`, and compact-by-default local validation presentation.
 
 The repository baseline is **not** a production deployment ledger. Keep these facts separate:
@@ -32,7 +32,7 @@ merged on main
 != behavior explicitly verified in Production
 ```
 
-No current repository document should claim that FSRS migrations `0019`-`0025` are applied to Production merely because they are committed.
+Neither the committed FSRS migrations nor later migrations through `0031` establish their application to Production D1. Production Worker deployment and live verification require separate evidence.
 
 ## Start here
 
@@ -86,13 +86,15 @@ Normal learner Study is owned by the FSRS/Free runtime, not the historical persi
 Current repository behavior includes:
 
 ```text
-Choose System
-→ Scheduled Study or Free Study
+Choose one or more Systems; optionally narrow each to Topics/curated Tags
+→ Scheduled Study or Free Study across the deduplicated combined Case pool
 → choose 5 / 10 / 20 / All available Cases (default 10)
 → active Review snapshot freezes the presented Case/questions/media
 → reveal answers
 → Again / Hard / Good / Easy for Scheduled Study
-→ completion advances FSRS state and durable Scheduled history
+→ Scheduled completion advances FSRS state and durable history
+→ Free completion records exposure without Scheduled FSRS changes
+→ continue to the next eligible Case when available
 ```
 
 Free Study records exposure without advancing scheduled FSRS state.
@@ -113,11 +115,12 @@ See [`docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`](docs/LEARNER_FSRS_RUNTIME_CU
 
 ## Administrator surfaces
 
-Current repository Admin navigation includes:
+Current repository Admin sidebar includes:
 
 ```text
 Dashboard
 Cases
+Feedback
 Questions
 Shared Questions
 Images
@@ -125,11 +128,12 @@ Systems & Topics
 Tags
 Learner analytics
 Learner retention
+My study data
 Import package
-Admin Study Preview
+Accounts
 ```
 
-Account Management v1 remains separate: PR #96 (password recovery/email foundation) and PR #97 (Admin account management) are still open draft PRs and are not part of current `main` merely because their design documents exist.
+PR #180 (password recovery/email) and PR #181 (Production Admin account management) are merged in repository code; the older PR #96/#97 drafts do not define current implementation status. Admin Study Preview is a separate capability, not a sidebar item. Merged repository code is not evidence of Production email configuration, migration application, deployment or live verification.
 
 ## Imports and source reconstruction
 
