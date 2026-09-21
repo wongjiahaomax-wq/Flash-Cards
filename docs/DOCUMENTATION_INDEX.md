@@ -19,7 +19,7 @@ Use this order when sources disagree:
 
 Repository `main` checkpoint: `f392752cb5fe6fc14d37257d9352fd611cc0f25b` (merged #193); refresh GitHub for the actual current HEAD. The **committed repository** migration sequence ends at `0031_learner_feedback.sql` at this checkpoint; `V1_DATA_MODEL.md` and the committed migration tree own the exact ledger. Runtime v2's migration `0026` and subsequent migrations `0027`–`0031` are repository facts, not proof of Production D1 application or Worker deployment.
 
-Relevant later merged repository work includes #159 (multi-System learner UX), #174 (Asset deduplication), #180–#181 (password recovery and Admin accounts), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library), and #192–#193 (Issue #191 cleanup/navigation optimization). Open Draft #190 remains the separate direct Case Editor Study Preview work; do not describe it as merged.
+Relevant later merged repository work includes #149 (original learner multi-System cutover) and #159 (subsequent redesign of the Study launcher, applied/draft selection, and secondary routes), #174 (Asset deduplication), #180–#181 (password recovery and Admin accounts), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library), and #192–#193 (Issue #191 cleanup/navigation optimization). Open Draft #190 remains the separate direct Case Editor Study Preview work; do not describe it as merged.
 
 The GitHub repository is public. The application remains closed-enrollment/private; public signup is disabled in the repository implementation.
 

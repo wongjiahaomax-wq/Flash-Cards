@@ -114,7 +114,8 @@ Completed repository foundations/tranches represented on current `main` include:
 - PR #139 / PR F — Reset Progress, Fresh FSRS Start, detailed-history retention/control, learner Progress;
 - PR #141 / PR G — durable monthly Admin analytics, stable cohort trends, System provenance extension, mature-account-deletion scale gate and staged deletion path;
 - PR #147 — Multi-System Runtime v2 scope/proof/D1/cutover foundation;
-- PR #159 — merged multi-System learner launcher/UX cutover;
+- PR #149 — original learner multi-System cutover;
+- PR #159 — subsequent redesign of the Study launcher, applied/draft selection, and secondary routes;
 - PR #187 — merged Study Review image-inspection/reveal UX refinements.
 
 `MULTI_SYSTEM_UX_IMPLEMENTATION.md` describes the merged learner cutover; current executable routes and tests remain authoritative.

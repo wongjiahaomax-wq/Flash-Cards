@@ -319,7 +319,7 @@ The repository remains pinned to Better Auth `1.6.25` on this branch.
 
 PR G account deletion includes the pinned-version ownership behavior required to remove learner-owned password-reset verification rows without deleting unrelated verification records.
 
-This deletion lifecycle is distinct from the separate Account Management v1 work in still-open draft PRs #96/#97.
+This staged deletion lifecycle remains distinct from Account Management v1: password-recovery/transactional-email work is merged in PR #180, and Production Admin account management is merged in PR #181. Those repository merges do not establish Production configuration, migration application, deployment or live verification.
 
 ## Admin Study Preview
 

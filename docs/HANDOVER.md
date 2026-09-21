@@ -10,7 +10,7 @@ Repository `main` checkpoint: `f392752cb5fe6fc14d37257d9352fd611cc0f25b` (merge 
 
 Latest **committed repository** migration at that checkpoint: `0031_learner_feedback.sql`. `V1_DATA_MODEL.md` owns the complete migration ledger. Neither this checkpoint nor a committed migration establishes the Production D1 migration level or Worker deployment state.
 
-Relevant merged work since the earlier handover: PR #147 (Multi-System Runtime v2), #159 (multi-System learner UX), #174 (Asset deduplication), #180 (password recovery), #181 (Production Admin account management), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library local mutations), #192 (dead-code retirement), and #193 (Study navigation CPU optimization). See current code/PRs for implementation details rather than treating older plans as current status.
+Relevant merged work since the earlier handover: PR #147 (Multi-System Runtime v2), #149 (original learner multi-System cutover), #159 (subsequent redesign of the Study launcher, applied/draft selection, and secondary routes), #174 (Asset deduplication), #180 (password recovery), #181 (Production Admin account management), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library local mutations), #192 (dead-code retirement), and #193 (Study navigation CPU optimization). See current code/PRs for implementation details rather than treating older plans as current status.
 
 The GitHub repository is public. The application remains closed-enrollment/private; public signup remains disabled in the repository implementation.
 
