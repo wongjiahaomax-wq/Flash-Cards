@@ -1,6 +1,6 @@
 # Learner Original Questions and Expanded Learning
 
-_Status: implemented in draft PR #87. Merge, D1 migration application, production deployment, and production verification remain separate future operational facts._
+_Status (21 Sep 2026): Original/Core and Expanded Learning question-pool behavior was implemented and merged in PR #87. This is a retained behavior/design record; actual current question eligibility is defined by the resolver and its tests. Production migration, deployment and verification remain separate facts._
 
 _Last reviewed: 24 August 2026._
 
