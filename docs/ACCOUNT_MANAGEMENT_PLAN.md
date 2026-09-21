@@ -1,6 +1,6 @@
 # Account Management Plan
 
-_Status: PR A is merged in #180; PR B implementation is present on Draft #181 and final handoff is pending; PR C and production rollout remain pending._
+_Status (21 Sep 2026): PR A (#180) and PR B (#181) are merged. This retained product/design plan contains historical Draft/implementation-stage wording; current account behavior is owned by executable auth/Admin routes and tests. Further security/self-service work and Production rollout require separate current-state verification and authorization._
 
 _Last reviewed: 14 September 2026_
 
