@@ -1,8 +1,8 @@
 # Flash-Cards — Current Product Roadmap
 
-_Last reconciled: 5 September 2026._
+_Last reconciled: 21 September 2026 (repository-state checkpoint)._
 
-This is the shortest current status map. It separates verified Production facts from repository state and future work.
+This is the shortest current status map. It separates verified Production facts from repository implementation and future work.
 
 ## Status boundary
 
@@ -17,9 +17,9 @@ merged on main
 != behavior explicitly verified in Production
 ```
 
-This reconciliation includes current `main` through merged PR #147 (Multi-System Runtime v2) plus the repository implementation of the subsequent Multi-System UX learner cutover. Use Git/GitHub for the exact current PR/merge state. The implemented repository migration boundary is `0026_multi_system_active_review_scope_v2.sql`; the UX tranche adds no migration.
+Repository baseline: `main` at `f392752cb5fe6fc14d37257d9352fd611cc0f25b`, including merged PR #193. Latest committed repository migration is `0031_learner_feedback.sql`; the complete sequence lives in `V1_DATA_MODEL.md`. Refresh GitHub and the migration tree for later changes. Neither repository state nor this document verifies a current Production migration/deployment boundary.
 
-The GitHub repository is public. The application remains closed-enrollment/private; public self-registration is disabled on current repository code.
+The GitHub repository is public. The application remains closed-enrollment/private; public self-registration is disabled in repository code.
 
 ## Explicitly verified Production baseline
 
@@ -34,7 +34,7 @@ The durable project record verifies a Production baseline that predates the FSRS
 - Production-backed Preview Admin;
 - the first ECG/Anki corpus represented and verified in Production: 66/66 source notes.
 
-The repository now contains substantially newer FSRS and Multi-System Runtime v2 code/migrations. Do **not** relabel those as Production-deployed without separate release/migration evidence.
+The repository now contains newer FSRS/Runtime v2, account-management, learner-feedback, and performance changes. Do **not** relabel any of these as Production-deployed without separate release/migration evidence.
 
 ## Current repository learner architecture
 
@@ -60,7 +60,9 @@ Normal `/study` is FSRS/Free owned. In the Multi-System UX implementation repres
 - detailed Scheduled-history retention supports 24m / 36m / 60m / indefinite;
 - Admin learner retention controls are implemented;
 - durable monthly Admin analytics and stable account-created-month cohort trends are implemented;
-- mature learner account deletion uses retry-safe staged deletion rather than an unbounded one-shot cascade.
+- mature learner account deletion uses retry-safe staged deletion rather than an unbounded one-shot cascade;
+- self-service study-data deletion preserves account/content ownership and is distinct from permanent learner deletion;
+- Case-level learner feedback is submitted from an eligible active Review and retained for Production Admin review independently of study-data deletion.
 
 There is no balanced/equal per-System quota, synthetic `Mixed` System, or per-System FSRS state in the current design.
 
@@ -83,11 +85,12 @@ Systems are top-level learner navigation. Cases attach to Topics, never directly
 
 Additional Study Topics are retired from current behavior. Historical `case_concepts.role = 'secondary'` rows may remain as inert compatibility data.
 
-Current repository Admin navigation includes:
+Current repository Admin sidebar includes:
 
 ```text
 Dashboard
 Cases
+Feedback
 Questions
 Shared Questions
 Images
@@ -95,11 +98,12 @@ Systems & Topics
 Tags
 Learner analytics
 Learner retention
+My study data
 Import package
-Admin Study Preview
+Accounts
 ```
 
-Admin Study Preview must remain outside learner persistence.
+Admin Study Preview is a separate capability outside learner persistence; do not confuse it with an Admin sidebar item or with the direct Case Editor preview still owned by Draft PR #190.
 
 ## FSRS programme state
 
@@ -109,9 +113,12 @@ Completed repository foundations/tranches represented on current `main` include:
 - PR #137 — real `/study` runtime cutover and legacy Review retirement;
 - PR #139 / PR F — Reset Progress, Fresh FSRS Start, detailed-history retention/control, learner Progress;
 - PR #141 / PR G — durable monthly Admin analytics, stable cohort trends, System provenance extension, mature-account-deletion scale gate and staged deletion path;
-- PR #147 — Multi-System Runtime v2 scope/proof/D1/cutover foundation.
+- PR #147 — Multi-System Runtime v2 scope/proof/D1/cutover foundation;
+- PR #149 — original learner multi-System cutover;
+- PR #159 — subsequent redesign of the Study launcher, applied/draft selection, and secondary routes;
+- PR #187 — merged Study Review image-inspection/reveal UX refinements.
 
-The subsequent Multi-System UX learner cutover is implemented in the repository branch/PR represented by `MULTI_SYSTEM_UX_IMPLEMENTATION.md`; use GitHub to establish whether that PR is still under review or has merged.
+`MULTI_SYSTEM_UX_IMPLEMENTATION.md` describes the merged learner cutover; current executable routes and tests remain authoritative.
 
 Still outside the implemented FSRS/Multi-System scope:
 
@@ -136,16 +143,13 @@ The next operational learner-runtime step is controlled Production rollout when 
 
 No documentation or ordinary feature PR authorizes those Production operations.
 
-### 2. Account Management v1
+### 2. Account Management and learner feedback
 
-Account Management v1 is progressing in the current implementation worktree:
+- PR #180 merged the password-recovery/transactional-email foundation.
+- PR #181 merged Production Admin account management, including the `/admin/accounts` route.
+- PR #186 merged learner feedback with the Production Admin Feedback workflow and committed migration `0031`.
 
-- PR #180 — merged: password recovery and transactional-email foundation;
-- PR #181 — implementation in progress: Production Admin account management;
-- PR C and the production rollout remain pending.
-
-The PR #181 implementation state is not evidence of merge, production configuration,
-deployment, or live verification.
+Any additional account-security/self-service work and Production email configuration, migrations, deployment, and live verification remain separately gated. A merge does not establish any of those operational states.
 
 ### 3. Real-corpus taxonomy and content curation
 
@@ -162,16 +166,16 @@ Use real content evidence rather than introducing another classification model p
 
 ### 4. Measurement-driven performance work
 
-Continue only from measured bottlenecks. Candidate areas include:
+Continue only from measured bottlenecks. Issue #191 records completed dead-code retirement (merged #192) and per-invocation Study navigation indexing (merged #193); do not reopen those completed changes as speculative pre-beta work. Remaining conditional candidate areas include:
 
 - Better Auth short-lived session/cookie behavior;
 - FSRS Study/run-planning read paths;
-- multi-System chooser/count latency only if measurements justify optimization;
+- multi-System chooser/count or other Study read-path latency only if fresh representative measurements justify a separate change;
 - Case-editor server read/lazy-loading boundaries;
 - image thumbnail delivery;
 - query/index tuning backed by measurements/EXPLAIN.
 
-Do not add caches/indexes solely because they are conventional.
+See Issue #191 for measured and deferred D1, R2, Slide Reviewer, completion, and Feedback candidates. Do not add caches/indexes solely because they are conventional.
 
 ### 5. Documentation and agent-context hygiene
 

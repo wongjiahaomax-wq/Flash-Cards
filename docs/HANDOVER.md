@@ -1,33 +1,18 @@
 # Flash-Cards agent handover
 
-_Refreshed: 4 September 2026._
+_Refreshed: 21 September 2026 (repository-state reconciliation)._
 
-This handover is a concise current-state companion to `CURRENT_PRODUCT_ROADMAP.md`. It is not a substitute for executable code/migrations or subsystem authorities.
+This handover is a concise current-state companion to `CURRENT_PRODUCT_ROADMAP.md`. Executable code, committed migrations and relevant subsystem authorities take precedence.
 
 ## Reconciliation base
 
-This reconciliation was prepared from `main` commit:
+Repository `main` checkpoint: `f392752cb5fe6fc14d37257d9352fd611cc0f25b` (merge of PR #193). Refresh GitHub before treating this as the latest HEAD.
 
-```text
-602b2abab7102dd135670c9bd4f564c1d07528dc
-```
+Latest **committed repository** migration at that checkpoint: `0031_learner_feedback.sql`. `V1_DATA_MODEL.md` owns the complete migration ledger. Neither this checkpoint nor a committed migration establishes the Production D1 migration level or Worker deployment state.
 
-That commit merged PR #142 (dependency-install speedups). Use Git/GitHub for the exact current head after this documentation PR changes the branch.
+Relevant merged work since the earlier handover: PR #147 (Multi-System Runtime v2), #149 (original learner multi-System cutover), #159 (subsequent redesign of the Study launcher, applied/draft selection, and secondary routes), #174 (Asset deduplication), #180 (password recovery), #181 (Production Admin account management), #186 (learner feedback), #187 (Study Review UX), #188 (Case Library local mutations), #192 (dead-code retirement), and #193 (Study navigation CPU optimization). See current code/PRs for implementation details rather than treating older plans as current status.
 
-The implemented repository migration boundary is:
-
-```text
-0025_learner_fsrs_admin_analytics_deletion.sql
-```
-
-Important merged sequence represented by this handover includes:
-
-- PR #137 — learner `/study` runtime cutover to FSRS/Free and legacy Review retirement;
-- PR #139 — PR F: Reset Progress / Fresh FSRS Start, detailed-history retention/control, learner Progress;
-- PR #141 — PR G: durable monthly Admin analytics/cohorts and mature-account-deletion readiness;
-- PR #142 — dependency reuse/cache/install speedups.
-
-The repository is public. The application remains closed-enrollment/private; public signup remains disabled on current repository code.
+The GitHub repository is public. The application remains closed-enrollment/private; public signup remains disabled in the repository implementation.
 
 ## Status boundary
 
@@ -50,7 +35,7 @@ Current repository `/study` behavior is Systems-first and FSRS-owned.
 
 ### Run planning
 
-- learner selects a System;
+- learner selects one or more Systems in a combined run, with whole-System scope by default and optional Topic/curated-Tag narrowing per System;
 - learner selects Scheduled Study or Free Study;
 - run-size choices are 5 / 10 / 20 / All available, default 10;
 - Scheduled planning uses Due-first ordering with New fallback and preserves required FSRS short-term repeats without consuming an additional distinct-Case run slot;
@@ -134,20 +119,19 @@ Do not infer an Original from display order/name. Do not use a different image o
 
 ## Admin surfaces
 
-Current repository Admin navigation includes learner analytics/retention in addition to the established content-management surfaces.
+Current repository Admin navigation includes Feedback, Accounts, learner analytics/retention, and My study data alongside content-management surfaces. The normal Study launcher is multi-System; direct Case Editor Study Preview remains owned by open Draft PR #190, not by this reconciliation.
+
+Learner feedback is Case-level, learner-owned data submitted against an eligible active Review. The Production Admin Feedback queue supports review and deletion; Case Editor feedback operations are separate from Save All. Ordinary Case deactivation retains reports, while permanent learner-account deletion removes feedback through staged cleanup. Self-service study-data deletion does not purge feedback.
 
 Admin Study Preview remains isolated from learner persistence. It must not create learner preferences, FSRS state, active Reviews, completion receipts, or legacy Review rows.
 
 ## Account Management
 
-Account Management v1 is progressing after the password-recovery foundation merged:
+- PR #180 merged password recovery and the transactional-email foundation.
+- PR #181 merged Production Admin account lifecycle management; `/admin/accounts` is present in current repository code.
+- Additional security/self-service work and any Production configuration or rollout require separate current-state verification and authorization.
 
-- PR #180 merged the password-recovery and transactional-email foundation;
-- PR #181 is the in-progress Production Admin account-management implementation;
-- PR C and production rollout/configuration/live verification remain pending.
-
-The PR #181 implementation state is not evidence of merge, production configuration,
-deployment, or live verification.
+Do not equate these merges with configured production email, applied D1 migrations, a deployed Worker, or live account-management verification.
 
 ## Development / validation
 

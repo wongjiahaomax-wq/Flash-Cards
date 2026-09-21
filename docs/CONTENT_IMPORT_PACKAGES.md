@@ -1,6 +1,6 @@
 # Flash-Cards Import Packages
 
-_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. PR #53 adds a separate local slide-review/finalization layer. PR #90 keeps Package v1 shape compatibility while retiring non-empty Additional Study Topic declarations. Draft PR #167 adds the final package-declared preview and terminal history cleanup without changing Package v1 or resumable execution._
+_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. PR #53 adds a separate local slide-review/finalization layer. PR #90 keeps Package v1 shape compatibility while retiring non-empty Additional Study Topic declarations. Merged PR #167 added the final package-declared preview and terminal history cleanup without changing Package v1 or resumable execution._
 
 _Last updated: 8 September 2026_
 

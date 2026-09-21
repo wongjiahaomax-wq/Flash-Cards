@@ -1,6 +1,6 @@
 # Case Added / Last Edited Metadata — Simplified Implementation Plan
 
-_Status: implementation authority for Draft PR #176. Feature implementation is complete; PR remains Draft._
+_Status (21 Sep 2026): Historical implementation plan for merged PR #176. The original Draft-PR implementation instructions below are no longer active; consult current Case Editor/Case Library code and tests for timestamp behavior._
 
 ## Goal
 

@@ -1,5 +1,7 @@
 # Learner Feedback — Implementation Plan
 
+_Status (21 Sep 2026): Historical planning and acceptance record for merged PR #186. The Draft-PR instructions and pre-`0031` migration baseline below describe the original implementation stage, not current work state. Current learner/Admin feedback behavior is owned by executable code, tests and migration `0031`; see `DOCUMENTATION_INDEX.md` for authority routing. Repository merge does not establish Production D1 migration, Worker deployment, or live verification._
+
 ## Status
 
 Implementation-ready planning contract for the learner-to-Admin content feedback workflow.

@@ -1,6 +1,6 @@
 # Case Editor — Save Persistence and Unsaved-State Visibility Plan
 
-_Status: implemented in Draft PR #165; correction review and exact-head validation remain the handoff gate. Keep this PR Draft. Do not mark Ready, merge, deploy, or perform Production data mutation without explicit instruction._
+_Status (21 Sep 2026): Historical implementation/acceptance record for merged PR #165. The original Draft/review/handoff instructions below belong to that completed PR, not a request to restart work. Current Case Editor code and tests define implemented save and unsaved-state behavior._
 
 _Base for planning: `main` at `d4299c795c63e739106d3a5d872d3773550b304f`._
 

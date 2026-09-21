@@ -1,6 +1,6 @@
 # Slide Source Prep Portable AI Handoff Plan
 
-_Status: implementation-ready amendment for Draft PR #168. Implement in this same PR._
+_Status (21 Sep 2026): Historical portable-AI-handoff implementation amendment for merged PR #168. Original Draft-PR instructions below are retained as acceptance/design history, not current tasks. Current executable authority: `tools/slide-source-prep/README.md`, `AI_EXTRACTION_CONTRACT.md`, and preparer code/tests._
 
 ## Goal
 

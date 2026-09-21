@@ -150,28 +150,11 @@ Do not use broad `taskkill /IM node.exe`, `killall node`, or equivalent cleanup:
 
 See `LOCAL_DEVELOPMENT_REPLICA.md` for the complete internal runbook.
 
-## 4. Current migration ledger
+## 4. Committed migrations versus Production state
 
-Current committed learning-domain migrations are:
+For the complete **current repository** migration sequence, use `V1_DATA_MODEL.md` and the committed `drizzle/*.sql` migration files. At the 21 September 2026 repository checkpoint (`f392752cb5fe6fc14d37257d9352fd611cc0f25b`), the committed sequence runs from `0000` through `0031_learner_feedback.sql`. Do not treat the older `0000`–`0011` release-era list as the current terminal migration boundary.
 
-```text
-0000_dashing_centennial.sql
-0001_better_auth.sql
-0002_optional_stimulus_groups.sql
-0003_multi_topic_study_routing.sql
-0004_resumable_import_jobs.sql
-0005_tag_foundation.sql
-0006_preview_admin_workspace.sql
-0007_image_collections.sql
-0008_tag_shared_questions.sql
-0009_reusable_image_questions.sql
-0010_reusable_image_reactivation_guard.sql
-0011_asset_supersession.sql
-```
-
-Previously verified production records establish that `0006`, `0007` and `0008` were applied as part of their corresponding released features.
-
-`0009`, `0010` and `0011` are present on current `main`. **Repository presence is not production-application evidence.** Do not label these migrations production-applied unless the remote migration state or a successful release run has been explicitly checked.
+Previously verified Production records established that `0006`, `0007`, and `0008` were applied as part of their corresponding released features. The historical `0009`–`0011` repository-state note did **not** establish their Production application. Neither that old note nor this updated repository boundary verifies which later migrations have been applied remotely. Confirm the intended Production D1 migration state with authorized release evidence before any migration/deployment operation.
 
 After changing learning schema locally:
 

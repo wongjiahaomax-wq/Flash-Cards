@@ -1,6 +1,6 @@
 # Admin image authoring workflow
 
-_Status: current repository authoring contract. It incorporates the merged PR #29/#34/#56–#59/#62/#63/#72 behavior plus PR #108's Original/Alternative production authoring changes. PR #108 being present in this branch is not proof of production migration/deployment._
+_Status (21 Sep 2026): Current repository authoring contract incorporating merged PRs #29/#34/#56–#59/#62/#63/#72 and #108's Original/Alternative production authoring changes. Merged repository code does not establish Production migration application, Worker deployment or live verification._
 
 _Last updated: 28 August 2026_
 
