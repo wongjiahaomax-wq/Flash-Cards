@@ -1,38 +1,34 @@
 # Flash-Cards — Admin Content Management
 
-_Last updated: 24 August 2026_
+_Last reconciled: 21 September 2026 (repository-state checkpoint)_
 
 ## Status
 
-The original Admin content-management plan is now an **implemented product contract**. This historical filename is retained for links, but this document describes current `main`, not a future PR sequence.
+The original Admin content-management plan is an **implemented product contract**. This historical filename is retained for links. The core authoring principles remain useful; the original future-work section is historical. For complete current navigation and implementation status use `CURRENT_PRODUCT_ROADMAP.md` and the Admin routes.
 
 For project-wide status read `CURRENT_PRODUCT_ROADMAP.md`; for authoring semantics read `AUTHORING_MODEL.md`; for image-specific rules read `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `REUSABLE_IMAGE_QUESTIONS.md`, and `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`.
 
-## Current production navigation
+## Current repository Admin navigation
+
+The current repository Admin sidebar includes:
 
 ```text
 Dashboard
 Cases
+Feedback
 Questions
 Shared Questions
 Images
-Topics
+Systems & Topics
 Tags
+Learner analytics
+Learner retention
+My study data
 Import package
+Accounts
 ```
 
-Routes include:
-
-```text
-/admin
-/admin/cases
-/admin/questions
-/admin/shared-questions
-/admin/images
-/admin/topics
-/admin/tags
-/admin/import
-```
+These entries are implemented in repository code; repository inclusion does not establish live Production deployment. The corresponding routes include `/admin`, `/admin/cases`, `/admin/feedback`, `/admin/questions`, `/admin/shared-questions`, `/admin/images`, `/admin/topics`, `/admin/tags`, `/admin/learner-analytics`, `/admin/learner-retention`, `/admin/my-study-data`, `/admin/import`, and `/admin/accounts`. Admin Study Preview is a separate capability, not a sidebar item.
 
 The shell provides a wide responsive workspace for library/content-management surfaces while form-heavy editors may constrain readable width.
 
@@ -269,21 +265,9 @@ The shared Case editor must remain contract-tested whenever actions/data require
 
 Global Shared Questions and Reusable Image Questions remain production-only mutation domains. Production higher-resolution replacement remains unavailable in Preview.
 
-## 14. Current next Admin work
+## 14. Original next-work proposals (historical)
 
-### Learner-account administration
-
-Implement the smallest safe administrator workflow for learner accounts while preserving production/Preview role boundaries.
-
-### Basic learner-progress administration
-
-Initial useful scope:
-
-- learner list;
-- recent Reviews;
-- simple filters;
-- Again/Good summaries;
-- repeated-Again flags/signals.
+The original learner-account and simple progress/Again–Good proposals below have been superseded by merged Production Admin Accounts (#181), FSRS analytics/retention, and learner-feedback capabilities. They do not define the current backlog or supported rating model. Current implementation and remaining work are described by executable code and `CURRENT_PRODUCT_ROADMAP.md`.
 
 ### Measured/focused follow-up
 
@@ -297,9 +281,9 @@ Do not implement merely for completeness:
 - Tag hierarchy/aliases or Study-by-Tag;
 - Asset Tags;
 - complex Topic tree editor;
-- permanent destructive Asset/R2 deletion without a conservative safety design;
+- general permanent destructive Asset/R2 deletion outside the separately implemented human-certified deduplication and existing guarded cleanup workflows;
 - generic Asset-family/version UI;
-- advanced analytics;
+- analytics beyond the current durable monthly/cohort and learner reporting;
 - rich WYSIWYG page builder;
 - broad non-image upload types;
 - AI-generated/inferred clinical metadata without explicit review.
