@@ -1,6 +1,6 @@
 # Beta Test Credentials — Implementation Plan
 
-_Status: reviewed implementation contract for Draft PR #182. PR #181 has merged; PR #182 owns both planning and implementation. Keep #182 Draft and implement this contract in the same PR after rebasing the branch onto exact current `main`._
+_Status (21 Sep 2026): Historical implementation contract for merged PR #182. Its original Draft-branch and rebase instructions below describe the implementation stage, not current work. Use current auth/Admin code and tests for supported beta credentials; Production configuration/deployment remain separate._
 
 _Last reviewed: 15 September 2026._
 

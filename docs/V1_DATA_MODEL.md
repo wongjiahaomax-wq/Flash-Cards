@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 5 September 2026_
+_Last updated: 21 September 2026 (repository-state reconciliation)_
 
-This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, the Multi-System Runtime v2 scope/runtime foundation through migration `0026`, the learner multi-System `/study` UX implementation, migration `0027`, and the Draft PR #174 Asset deduplication implementation through its Tranche 1 and Tranche 2 boundaries. Tranche 2 adds no table, column, or migration: its read-only browser-side visual duplicate discovery persists no fingerprints, candidates, or dismissal decisions, and reuses the Tranche-1 certified comparison/merge path. This document should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; `MULTI_SYSTEM_UX_IMPLEMENTATION.md` records the current learner chooser/count/navigation cutover on top of that runtime.
+This document records the current repository V1 data model through the learner FSRS and Multi-System Runtime v2 cutovers, current Primary Topic/Tag and Original/Alternative stimulus behavior, merged Asset deduplication (PR #174), self-service study-data deletion (`0027`), Admin account safety (`0029`–`0030`, merged PR #181), and learner feedback (`0031`, merged PR #186). Tranche 2 visual duplicate discovery adds no new migration. Current Drizzle schema, committed D1 migrations, and relevant subsystem authorities take precedence; `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md`, and `MULTI_SYSTEM_UX_IMPLEMENTATION.md` retain the FSRS/Runtime v2/learner chooser scope and evidence.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -40,6 +40,9 @@ The repository migration sequence contains:
 0026_multi_system_active_review_scope_v2.sql
 0027_self_service_study_data_deletion.sql
 0028_admin_image_deduplication.sql
+0029_account_admin_safety.sql
+0030_learner_account_deletion_integrity.sql
+0031_learner_feedback.sql
 ```
 
 Important migrations for the current model include:
@@ -64,12 +67,15 @@ Important migrations for the current model include:
 - `0026` — replaces the Active Review content/scope guard with the strict canonical Runtime v2 envelope, validates bounded canonical multi-System `runScope`, proves the frozen scalar attribution System is selected and can actually reach the Case through that selected sub-scope, rejects duplicate/contradictory scope shapes, and retains the active/non-Preview Case plus active Primary Topic eligibility baseline.
 - `0027` — durable self-service learner study-data deletion state and its bounded account/session/content-preservation guards.
 - `0028` — nullable immutable Asset deduplication tombstones plus database guards that prevent inactive tombstone reacquisition, self/chain state, and new Case, Stimulus Option, reusable-question, active-Review, storage-key, or supersession references to a tombstoned Asset.
+- `0029` — database guards against demoting, banning, or deleting the last active Production Admin.
+- `0030` — database guards preventing learner-deletion marker creation for a non-learner and role changes while permanent learner-account deletion is in progress.
+- `0031` — Case-level `learner_feedback` table with status/review-metadata checks and indexes, plus insert/deletion guards for permanent learner-account deletion.
 
 Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
 `0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite older legacy Review rows. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
 
-No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active. Migration `0026` changes database guard semantics rather than adding a new Drizzle table/column. Migration `0028` is additive: it adds only the nullable `assets.deduplicated_into_asset_id` self-FK/index and defensive lifecycle/reference triggers; committing it does not prove Production D1 application.
+No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables (including `learner_feedback`), `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active. Migration `0026` changes database guard semantics rather than adding a new Drizzle table/column. Migration `0028` is additive: it adds only the nullable `assets.deduplicated_into_asset_id` self-FK/index and defensive lifecycle/reference triggers; committing it does not prove Production D1 application.
 
 ## 2. General design rules
 

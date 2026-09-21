@@ -1,6 +1,6 @@
 # Password recovery and transactional email
 
-_Status: implemented in Draft PR #180; production email configuration, deployment, and live verification remain separate operator work._
+_Status: merged in PR #180. This is the living password-recovery implementation note; Production email configuration, deployment, and live verification remain separate operator work._
 
 _Last reviewed: 14 September 2026._
 

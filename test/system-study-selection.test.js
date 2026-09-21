@@ -214,6 +214,75 @@ test('navigation distinguishes zero-exact structural parents from descendant Cas
   assert.deepEqual(parentOnly, [], 'an exact structural parent has no candidates after its child is excluded');
 });
 
+test('navigation preserves scoped multi-System Topics, breadcrumbs, Tags, and deduplicated All counts', () => {
+  assert.deepEqual(buildSystemStudyNavigation(selectionFixture()), [
+    {
+      id: 'cardio',
+      name: 'Cardiovascular',
+      allCaseCount: 4,
+      topics: [
+        {
+          id: 'failure',
+          routeType: 'topic',
+          name: 'Heart failure',
+          breadcrumb: [
+            { id: 'cardio', name: 'Cardiovascular', kind: 'system' },
+            { id: 'failure', name: 'Heart failure', kind: 'topic' }
+          ],
+          caseCount: 1,
+          subtreeCaseCount: 1
+        },
+        {
+          id: 'qtc',
+          routeType: 'topic',
+          name: 'Prolonged QTc',
+          breadcrumb: [
+            { id: 'cardio', name: 'Cardiovascular', kind: 'system' },
+            { id: 'rhythm', name: 'Rhythm', kind: 'topic' },
+            { id: 'qtc', name: 'Prolonged QTc', kind: 'topic' }
+          ],
+          caseCount: 1,
+          subtreeCaseCount: 1
+        },
+        {
+          id: 'rhythm',
+          routeType: 'topic',
+          name: 'Rhythm',
+          breadcrumb: [
+            { id: 'cardio', name: 'Cardiovascular', kind: 'system' },
+            { id: 'rhythm', name: 'Rhythm', kind: 'topic' }
+          ],
+          caseCount: 1,
+          subtreeCaseCount: 2
+        }
+      ],
+      tags: [
+        { id: 'early-tag', routeType: 'tag', name: 'Early Tag', displayOrder: 0, caseCount: 2 },
+        { id: 'late-tag', routeType: 'tag', name: 'Late Tag', displayOrder: 10, caseCount: 2 }
+      ]
+    },
+    {
+      id: 'metabolic',
+      name: 'Metabolic',
+      allCaseCount: 1,
+      topics: [
+        {
+          id: 'hypocalcaemia',
+          routeType: 'topic',
+          name: 'Hypocalcaemia',
+          breadcrumb: [
+            { id: 'metabolic', name: 'Metabolic', kind: 'system' },
+            { id: 'hypocalcaemia', name: 'Hypocalcaemia', kind: 'topic' }
+          ],
+          caseCount: 1,
+          subtreeCaseCount: 1
+        }
+      ],
+      tags: []
+    }
+  ]);
+});
+
 test('all eligible exact Topics plus curated Tags matches existing System All IDs and effective provenance', () => {
   const fixture = selectionFixture();
   const selection = resolveSystemStudySelectionCandidates({

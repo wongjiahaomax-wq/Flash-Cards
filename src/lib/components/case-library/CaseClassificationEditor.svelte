@@ -9,8 +9,8 @@
     filterCaseLibraryTopicsBySystem
   } from '$lib/case-library-classification.ts';
 
-  /** @type {{ caseId: string, caseTitle: string, currentTopicId: string, currentTopicName: string, currentSystemName: string, topics: { id: string, name: string, breadcrumb: { id: string, name: string, kind: string }[] }[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[] }} */
-  let { caseId, caseTitle, currentTopicId, currentTopicName, currentSystemName, topics, parentOptions } = $props();
+  /** @type {{ caseId: string, caseTitle: string, currentTopicId: string, currentTopicName: string, currentSystemName: string, topics: { id: string, name: string, breadcrumb: { id: string, name: string, kind: string }[] }[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[], onMutation?: (mutation: any) => void }} */
+  let { caseId, caseTitle, currentTopicId, currentTopicName, currentSystemName, topics, parentOptions, onMutation = () => {} } = $props();
 
   let root = $state();
   let triggerButton = $state();
@@ -99,7 +99,12 @@
         error = (await response.text()).trim() || 'Unable to update this Case classification.';
         return;
       }
-      await invalidateAll();
+      if (operation === 'select-topic') {
+        const payload = await response.json();
+        onMutation(payload?.mutation);
+      } else {
+        await invalidateAll();
+      }
       await closeEditor(false);
     } catch {
       error = 'Unable to update this Case classification.';

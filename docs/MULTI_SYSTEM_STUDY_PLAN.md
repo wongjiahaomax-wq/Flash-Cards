@@ -1,6 +1,6 @@
 # Multi-System Learner Study Plan
 
-_Status: **implemented in repository tranches** — Multi-System Runtime v2 merged via PR #147; learner multi-System UX implemented on PR #149. Production deployment remains a separate operational state._
+_Status (21 Sep 2026): **Implemented and merged in repository tranches** — Multi-System Runtime v2 via PR #147 and learner multi-System UX via PR #149. Production D1 migration, Worker deployment, learner rollout and live verification remain separate operational facts._
 
 _Last reconciled on 5 September 2026._
 

@@ -4,6 +4,7 @@ import { conceptBreadcrumb } from '../learning/taxonomy-graph.ts';
 import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import {
   buildTopicConceptInsert,
+  findConceptTaxonomyById,
   listActiveConceptTaxonomy,
   listConceptTaxonomy,
   requireActiveTopicConcept
@@ -300,17 +301,15 @@ export async function listCaseTopics(db, caseId) {
 /** @param {LearningDb} db @param {string} caseId */
 async function requireActiveCaseWithOnePrimary(db, caseId) {
   const cleanCaseId = requiredText(caseId, 'Case');
-  await requireActiveProductionCase(db, cleanCaseId);
-
-  const [relationshipRows, conceptRows] = await Promise.all([
+  const [, relationshipRows] = await Promise.all([
+    requireActiveProductionCase(db, cleanCaseId),
     db
-      .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
+      .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role, kind: concepts.kind, isActive: concepts.isActive })
       .from(caseConcepts)
-      .where(eq(caseConcepts.caseId, cleanCaseId)),
-    listConceptTaxonomy(db)
+      .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+      .where(eq(caseConcepts.caseId, cleanCaseId))
   ]);
-  const topicIds = new Set(conceptRows.filter((concept) => concept.kind === 'topic').map((concept) => concept.id));
-  const topicRows = relationshipRows.filter((relationship) => topicIds.has(relationship.conceptId));
+  const topicRows = relationshipRows.filter((relationship) => relationship.kind === 'topic');
   const primaryRows = topicRows.filter((topic) => topic.role === 'primary');
   if (primaryRows.length !== 1) {
     throw new AdminContentInputError('The selected active Case must have exactly one primary Topic before it can be edited.');
@@ -322,8 +321,59 @@ async function requireActiveCaseWithOnePrimary(db, caseId) {
 /** @param {LearningDb} db @param {string} conceptId */
 async function requireActiveTopic(db, conceptId) {
   const cleanConceptId = requiredText(conceptId, 'Topic');
-  await requireActiveConcept(db, cleanConceptId);
-  return cleanConceptId;
+  const concept = await requireActiveTopicConcept(db, cleanConceptId);
+  if (!concept) throw new AdminContentInputError('The selected Topic is missing or inactive, or is classified as a System.');
+  return concept;
+}
+
+/**
+ * Read only the selected Topic's bounded active-taxonomy ancestry. This is
+ * intentionally not a complete taxonomy read: the Case Library only needs
+ * the current canonical Topic and its System ancestor for local membership
+ * reconciliation.
+ *
+ * @param {LearningDb} db
+ * @param {string} conceptId
+ */
+async function loadTopicProjection(db, conceptId) {
+  const client = db.$client;
+  if (!client || typeof client.prepare !== 'function') {
+    const topic = await findConceptTaxonomyById(db, conceptId);
+    return topic ? [topic] : [];
+  }
+
+  const result = await client.prepare(`
+    WITH RECURSIVE topic_ancestry(id, name, kind, parent_id, is_active, depth) AS (
+      SELECT id, name, kind, parent_id, is_active, 0
+      FROM concepts
+      WHERE id = ?
+      UNION ALL
+      SELECT parent.id, parent.name, parent.kind, parent.parent_id, parent.is_active, child.depth + 1
+      FROM concepts parent
+      JOIN topic_ancestry child ON child.parent_id = parent.id
+      WHERE child.depth < 64
+    )
+    SELECT id, name, kind, parent_id AS parentId, is_active AS isActive, depth
+    FROM topic_ancestry
+    ORDER BY depth DESC
+  `).bind(conceptId).all();
+  return Array.isArray(result?.results) ? result.results : [];
+}
+
+/** @param {LearningDb} db @param {string} caseId @param {string} conceptId @param {boolean} changed @param {string | null} updatedAt */
+async function classificationMutationResult(db, caseId, conceptId, changed, updatedAt) {
+  const ancestry = await loadTopicProjection(db, conceptId);
+  const topic = ancestry.find((node) => node.id === conceptId);
+  const system = ancestry.find((node) => node.kind === 'system');
+  const activePath = ancestry.length > 0 && ancestry.every((node) => node.isActive === true || node.isActive === 1);
+  return {
+    caseId,
+    changed,
+    updatedAt: changed ? updatedAt : null,
+    topic: topic ? { id: topic.id, name: topic.name } : { id: conceptId, name: conceptId },
+    system: activePath && system ? { id: system.id, name: system.name } : null,
+    taxonomyPath: ancestry.map((node) => ({ id: node.id, name: node.name, kind: node.kind, isActive: Boolean(node.isActive) }))
+  };
 }
 
 function secondaryTopicsRemovedError() {
@@ -359,8 +409,9 @@ export async function removeCaseSecondaryTopic(_db, _input) {
  */
 export async function promoteCaseTopic(db, input) {
   const { caseId, topicRows, primaryConceptId } = await requireActiveCaseWithOnePrimary(db, input.caseId);
-  const conceptId = await requireActiveTopic(db, input.conceptId);
-  if (primaryConceptId === conceptId) return;
+  const targetTopic = await requireActiveTopic(db, input.conceptId);
+  const conceptId = targetTopic.id;
+  if (primaryConceptId === conceptId) return classificationMutationResult(db, caseId, conceptId, false, null);
 
   const primaryWrite = db
     .update(caseConcepts)
@@ -369,8 +420,9 @@ export async function promoteCaseTopic(db, input) {
   const targetSecondary = topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
   if (!targetSecondary) {
     await primaryWrite;
-    await touchProductionCaseUpdatedAt(db, caseId);
-    return;
+    const updatedAt = new Date();
+    const timestampUpdated = await touchProductionCaseUpdatedAt(db, caseId, updatedAt);
+    return classificationMutationResult(db, caseId, conceptId, true, timestampUpdated ? updatedAt.toISOString() : null);
   }
 
   const secondaryDelete = db
@@ -379,11 +431,12 @@ export async function promoteCaseTopic(db, input) {
       eq(caseConcepts.caseId, caseId),
       eq(caseConcepts.conceptId, conceptId),
       eq(caseConcepts.role, 'secondary')
-    ));
+  ));
   if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite]));
     const updatedAt = new Date();
-    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite, productionCaseTimestampWrite(db, caseId, updatedAt)]));
-    return;
+    const timestampUpdated = await touchProductionCaseUpdatedAt(db, caseId, updatedAt);
+    return classificationMutationResult(db, caseId, conceptId, true, timestampUpdated ? updatedAt.toISOString() : null);
   }
 
   await secondaryDelete;
@@ -397,7 +450,9 @@ export async function promoteCaseTopic(db, input) {
     }
     throw error;
   }
-  await touchProductionCaseUpdatedAt(db, caseId);
+  const updatedAt = new Date();
+  const timestampUpdated = await touchProductionCaseUpdatedAt(db, caseId, updatedAt);
+  return classificationMutationResult(db, caseId, conceptId, true, timestampUpdated ? updatedAt.toISOString() : null);
 }
 
 /**
@@ -412,7 +467,7 @@ export async function bulkPromoteCaseTopics(db, input) {
   if (!caseIds.length) throw new AdminContentInputError('Select at least one Case.');
   if (caseIds.length > 60) throw new AdminContentInputError('Select no more than 60 Cases at a time.');
 
-  const conceptId = await requireActiveTopic(db, input.conceptId);
+  const conceptId = (await requireActiveTopic(db, input.conceptId)).id;
   const validated = await Promise.all(caseIds.map((caseId) => requireActiveCaseWithOnePrimary(db, caseId)));
   const writes = [];
   const changedCaseIds = [];

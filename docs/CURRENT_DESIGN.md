@@ -1,6 +1,6 @@
 # Flash-Cards — Current Design Summary
 
-_Last reconciled: 4 September 2026._
+_Last reconciled: 21 September 2026 (repository-state checkpoint)._
 
 This is the concise product/design mental model for current repository behavior. Use `CURRENT_PRODUCT_ROADMAP.md` for status and `V1_DATA_MODEL.md` plus current subsystem authorities for exact implementation semantics.
 
@@ -47,8 +47,8 @@ An Asset is one exact teaching-media identity. A Collection is Admin Image Libra
 Current repository learner flow is:
 
 ```text
-Choose System
-→ choose Scheduled Study or Free Study
+Choose one or more Systems; optionally narrow each to Topics/curated Tags
+→ choose Scheduled Study or Free Study for the deduplicated combined Case pool
 → choose 5 / 10 / 20 / All available Cases (default 10)
 → choose/use current content mode
 → server validates run/scope/work proof
@@ -137,7 +137,7 @@ Mature learner deletion is staged and retry-safe rather than relying on an unbou
 
 A durable deletion marker immediately denies access, then bounded phases drain Better Auth/application-owned rows. Final identity deletion fails closed if residual owned data remains.
 
-This lifecycle is separate from routine Account Management v1 work in open PRs #96/#97.
+This lifecycle is distinct from normal Account Management operations implemented in merged PRs #180/#181. The historical PR #96/#97 drafts are not current implementation owners. Self-service study-data deletion retains the account and does not purge learner feedback.
 
 ## 10. Stimuli
 
@@ -175,7 +175,7 @@ Eligibility is selected before duplicate-Prompt precedence/deduplication. Case q
 
 ## 12. Admin design
 
-Production Admin supports content management plus current learner administration surfaces for retention and analytics.
+Production Admin supports content management, `/admin/accounts`, Case-level learner feedback review and deletion, self-service Admin study-data management, plus learner retention and analytics. Learner feedback is submitted against an eligible active Review; routine Case deactivation retains it, while permanent learner-account deletion removes it through staged cleanup.
 
 The Systems & Topics workspace stages hierarchy, Primary Topic, and Case Tag changes in one review/apply flow while preserving the established domain-write boundaries.
 
@@ -189,4 +189,4 @@ Executable validators/schemas outrank old extraction prompt examples.
 
 ## 14. Production versus repository
 
-This document describes **repository behavior**, not proof of Production rollout. Any claim that FSRS, migrations `0019`-`0025`, learner Progress, retention, or Admin analytics are live in Production requires separate release/verification evidence.
+This document describes **repository behavior**, not proof of Production rollout. Any claim that FSRS, later committed migrations through `0031`, learner Progress, retention, Admin analytics, account management, or feedback is live in Production requires separate release/verification evidence.

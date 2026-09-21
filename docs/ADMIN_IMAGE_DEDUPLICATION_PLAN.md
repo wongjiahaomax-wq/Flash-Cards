@@ -1,6 +1,6 @@
 # Admin Image Deduplication — implementation plan
 
-_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Tranche 1 and Tranche 2 are both implemented on this branch; final validation and review remain. Do not create a follow-up implementation PR._
+_Status (21 Sep 2026): Historical design, safety and acceptance record for merged PR #174. The Draft-PR/implementation instructions below are retained as original planning context, not current work state. Current Asset deduplication behavior is defined by executable code, tests and migration `0028`; committing that migration is not evidence of Production application or live verification._
 
 ## Goal
 

@@ -1,10 +1,10 @@
 # Learner FSRS Study and Retention Plan
 
-Status: **Locked product/planning baseline — not yet implemented**
+Status (21 September 2026): **Locked FSRS product baseline — principal Scheduled/Free Study, retention, Reset/Fresh, Progress and Admin analytics tranches have been implemented and merged in the repository.** The original pre-implementation instructions below are retained as historical planning context. Automatic learner-parameter optimization/execution remains outside the implemented scope. Use current runtime code and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for exact behavior; Production rollout remains separately unverified.
 
 This document records the agreed learner Study, FSRS, history, retention, reset, and analytics decisions as of 1 September 2026.
 
-This is the product authority for future learner scheduling work. Older simple-scheduler / Again-Good-only planning is superseded and must not be used as implementation authority.
+This remains the locked product baseline for learner scheduling decisions; its original implementation sequence is not a current backlog. Older simple-scheduler / Again-Good-only planning is superseded and must not be used as implementation authority.
 
 Implementation must still inspect actual current `main`, open learner-study/account/architecture PRs, schema/migrations, then-current Cloudflare limits, and repository guidance before coding.
 

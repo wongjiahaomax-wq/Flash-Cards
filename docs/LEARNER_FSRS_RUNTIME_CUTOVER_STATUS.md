@@ -1,6 +1,6 @@
 # Learner FSRS Runtime Cutover Status
 
-Status: **current repository runtime authority, including merged Multi-System Runtime v2 and the learner multi-System UX implementation on PR #149. Production deployment remains a separate operational state.**
+Status: **repository authority for the learner FSRS/Runtime v2 cutover and merged learner multi-System UX (PR #149); later migration/feature status is maintained in `V1_DATA_MODEL.md` and `CURRENT_PRODUCT_ROADMAP.md`. Production deployment remains a separate operational state.**
 
 Date: 5 September 2026
 
@@ -14,7 +14,7 @@ This document records the current repository learner-runtime boundary. It comple
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md` — technical design/history;
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md` — safety/readiness requirements;
 - `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` — tranche ownership where older assignments conflict;
-- `V1_DATA_MODEL.md` — implemented schema/data semantics through migration `0026` and the current learner multi-System runtime/UX boundary.
+- `V1_DATA_MODEL.md` — current complete committed migration ledger and implemented schema/data semantics; this runtime record describes the `0026` tranche.
 
 Repository merge state is not Production deployment evidence. Nothing here establishes that migrations `0019`-`0026` have been applied to Production D1 or that the current Worker has been deployed/enabled/verified there.
 
@@ -319,7 +319,7 @@ The repository remains pinned to Better Auth `1.6.25` on this branch.
 
 PR G account deletion includes the pinned-version ownership behavior required to remove learner-owned password-reset verification rows without deleting unrelated verification records.
 
-This deletion lifecycle is distinct from the separate Account Management v1 work in still-open draft PRs #96/#97.
+This staged deletion lifecycle remains distinct from Account Management v1: password-recovery/transactional-email work is merged in PR #180, and Production Admin account management is merged in PR #181. Those repository merges do not establish Production configuration, migration application, deployment or live verification.
 
 ## Admin Study Preview
 
@@ -337,13 +337,15 @@ Learner retention/analytics pages are ordinary Production Admin surfaces and are
 
 `/fsrs-preview` remains a loopback/local-bindings-only regression/reference surface. It keeps continuous runs and 5/10/20/All behavior, now with descriptor/proof v2, but uses separate browser/local reference state from Production `/study`.
 
-## Current repository migration boundary
+## Runtime v2 tranche migration boundary
 
-The repository sequence on this branch extends through:
+This runtime tranche introduced:
 
 ```text
 0026_multi_system_active_review_scope_v2.sql
 ```
+
+The repository has subsequently committed later migrations; consult `V1_DATA_MODEL.md` and the migration tree for the current terminal boundary. This historical runtime evidence is not a competing current migration ledger.
 
 `0024` owns the defensive Reset/Fresh profile-boundary guard. `0025` owns monthly analytics/provenance and staged-deletion schema/guards. `0026` owns the strict v2 Active Review scope shape and selected-sub-scope attribution proof.
 

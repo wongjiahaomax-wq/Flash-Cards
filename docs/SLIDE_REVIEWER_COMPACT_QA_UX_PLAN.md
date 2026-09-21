@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Compact Q&A Review UX Plan
 
-_Status: implemented on Draft PR #166; pending final review._
+_Status (21 Sep 2026): Historical compact Q&A Reviewer UX implementation record for merged PR #166. Original Draft/review language below is not a current instruction; executable Reviewer code/tests and `tools/slide-import-review/README.md` govern current behavior._
 
 ## Goal
 

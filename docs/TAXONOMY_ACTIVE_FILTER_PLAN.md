@@ -1,6 +1,6 @@
 # Taxonomy status and type filters
 
-Status: implementation-ready small UX change.
+Status (21 Sep 2026): Implemented current Systems & Topics UI behavior; historical UX acceptance record. The old instruction to implement in an existing Draft branch is no longer active. See `TaxonomyOrganizer.svelte` and current focused tests.
 
 ## Goal
 

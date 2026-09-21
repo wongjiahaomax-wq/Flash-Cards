@@ -1,6 +1,6 @@
 # Contextual System / Topic / Tag Navigation
 
-_Status: current product/domain model on this draft branch. Deployment, taxonomy curation, and learner rollout remain separate operational steps. PR #90 does not add a database migration._
+_Status (21 Sep 2026): Primary Topic/Tag contextual taxonomy behavior from merged PR #90 remains current. The original persisted-Review provenance and single-System “Next case” descriptions below are historical pre-FSRS implementation context, not instructions for current active Review/run behavior; use `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`, `MULTI_SYSTEM_UX_IMPLEMENTATION.md` and executable code for that. Production deployment, taxonomy curation and learner rollout require separate evidence. PR #90 itself added no migration._
 
 _Last updated: 25 August 2026_
 

@@ -172,6 +172,67 @@ test('choosing a Topic already stored as a legacy secondary makes it canonical w
   }
 });
 
+test('classification returns an authoritative no-op and does not invent Last-edited data', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Classification no-op Case', conceptId: 'seed-anterior-stemi' });
+    const result = await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-anterior-stemi' });
+    assert.deepEqual(
+      { changed: result.changed, updatedAt: result.updatedAt, topic: result.topic, system: result.system },
+      {
+        changed: false,
+        updatedAt: null,
+        topic: { id: 'seed-anterior-stemi', name: 'Anterior STEMI' },
+        system: null
+      }
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('classification timestamp-only failure preserves the committed change and returns no updatedAt', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Classification timestamp failure Case', conceptId: 'seed-anterior-stemi' });
+    const target = await createConcept(fixture.db, 'Timestamp failure target');
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_classification_timestamp
+      BEFORE UPDATE OF updated_at ON cases
+      WHEN OLD.id = '${created.id}'
+      BEGIN SELECT RAISE(ABORT, 'forced timestamp failure'); END;
+    `);
+
+    const result = await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: target.id });
+    assert.equal(result.changed, true);
+    assert.equal(result.updatedAt, null);
+    assert.deepEqual(topicRelationships(fixture.sqlite, created.id), [{ concept_id: target.id, role: 'primary' }]);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('legacy-secondary promotion keeps the relationship batch substantive and timestamps afterward as best effort', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Legacy timestamp failure Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'seed-pityriasis-rosea', 'secondary')").run(created.id);
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_legacy_classification_timestamp
+      BEFORE UPDATE OF updated_at ON cases
+      WHEN OLD.id = '${created.id}'
+      BEGIN SELECT RAISE(ABORT, 'forced legacy timestamp failure'); END;
+    `);
+
+    const result = await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+    assert.equal(result.changed, true);
+    assert.equal(result.updatedAt, null);
+    assert.deepEqual(topicRelationships(fixture.sqlite, created.id), [{ concept_id: 'seed-pityriasis-rosea', role: 'primary' }]);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('invalid Primary Topic changes leave the existing canonical relationship untouched', async () => {
   const fixture = createLearningDb();
   try {

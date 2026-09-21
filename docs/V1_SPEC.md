@@ -1,6 +1,6 @@
 # Flash-Cards — Version 1 Specification
 
-_Last reconciled: 4 September 2026._
+_Last reconciled: 21 September 2026 (repository-state checkpoint)._
 
 ## 1. Purpose and status
 
@@ -13,20 +13,22 @@ The GitHub repository is public. The application is closed-enrollment/private an
 A learner can, where the relevant feature is enabled/deployed:
 
 1. sign in;
-2. choose a System;
+2. choose one or more Systems, leaving whole-System scope by default or narrowing individual Systems to eligible Topics/curated Tags;
 3. choose Scheduled Study or Free Study;
 4. choose a run size of 5 / 10 / 20 / All available Cases, default 10;
 5. use the current learner content-mode preference/choice for Original/Core versus Expanded Learning;
-6. receive a server-validated run of eligible Cases through native Topic and/or explicitly exposed Tag reachability;
+6. receive a server-validated, deduplicated combined run of eligible Cases through native Topic and/or explicitly exposed Tag reachability;
 7. open an active Review that freezes the selected Case/questions/media plus scheduler/run/scope provenance;
 8. reveal answers;
 9. for Scheduled Study, rate the whole Case Again / Hard / Good / Easy;
 10. for Free Study, complete a non-scheduling exposure without a Scheduled rating;
 11. continue automatically to the next eligible Case when one can open immediately;
 12. view learner Progress derived from current FSRS state, compact aggregates, and retained detailed history;
-13. use Reset Progress or Fresh FSRS Start according to their distinct data-retention/scheduler-boundary semantics.
+13. use Reset Progress or Fresh FSRS Start according to their distinct data-retention/scheduler-boundary semantics;
+14. submit Case-level feedback against an eligible active Review;
+15. separately clear their own study data while retaining their account and unrelated content.
 
-Required FSRS short-term repeats do not consume an additional distinct-Case run slot.
+Required FSRS short-term repeats do not consume an additional distinct-Case run slot. Whole-System selection preserves the canonical `mode: 'all'` scope rather than materializing every route.
 
 Browser run/localStorage state is convenience state only. Server-authenticated run/scope/work proofs and current learner profile boundaries are authoritative.
 
@@ -167,7 +169,10 @@ Production Admin supports:
 - strict reviewed Import Package v1 workflows;
 - Admin Study Preview;
 - learner retention overrides;
-- learner analytics.
+- learner analytics;
+- Account Management via `/admin/accounts`;
+- learner-feedback review/status/deletion through `/admin/feedback`, separate from Case Save All;
+- human-certified Asset deduplication and retained Asset lifecycle safeguards.
 
 Additional Study Topics are not current authoring behavior. Historical secondary rows may remain as compatibility data.
 
@@ -206,18 +211,20 @@ For current reviewed Case imports, `secondaryTopicIds` is retained only as an em
 
 Current `main` retains closed enrollment/public-signup disablement and established Production/Preview role boundaries.
 
-Account Management implementation PRs #96 and #97 remain open drafts and are not part of current `main`. Their design/prompts describe intended/branch behavior, not merged V1 behavior.
+PRs #180 (password recovery and transactional email) and #181 (Production Admin account lifecycle) are merged. Historical/open PRs #96/#97 are not current implementation authorities. Public self-registration remains disabled; Production email configuration, migrations, deployment and live verification require separate evidence.
 
 ## 16. Migration boundary
 
 Current repository migrations extend through:
 
 ```text
-0025_learner_fsrs_admin_analytics_deletion.sql
+0031_learner_feedback.sql
 ```
+
+`V1_DATA_MODEL.md` and the committed migration tree own the complete ordered ledger, including account safety (`0029`–`0030`) and learner feedback (`0031`).
 
 Presence in the repository is not proof of application to Production D1.
 
 ## 17. Production boundary
 
-Do not claim a repository feature is live in Production without separate deployment/migration/verification evidence. This applies especially to the FSRS runtime and migrations `0019`-`0025`.
+Do not claim a repository feature is live in Production without separate deployment/migration/verification evidence. This applies to the FSRS runtime and all subsequent committed migrations through `0031`, including account management and learner feedback.

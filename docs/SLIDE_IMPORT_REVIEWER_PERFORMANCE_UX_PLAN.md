@@ -1,6 +1,6 @@
 # Slide Import Reviewer Performance + UX Plan
 
-_Status: Draft implementation plan for the current PR. Do not treat this document as an implementation authority after the PR is complete._
+_Status (21 Sep 2026): Historical planning record for merged PR #163. The eager-ZIP and unbounded-cache problem statements below describe its pre-implementation baseline; the current Reviewer has lazy archive loading and bounded caches. Follow executable Reviewer code/tests and `tools/slide-import-review/README.md` for current behavior. Issue #191 separately records a conditional crop-source loading candidate, not an authorization to repeat completed work._
 
 ## Objective
 
