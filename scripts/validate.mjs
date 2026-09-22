@@ -68,6 +68,7 @@ export function localValidationCommandArgs(id, args, verbose) {
   if (id === 'svelte') return ['run', 'check:verbose'];
   if (id === 'build') return ['run', 'build:verbose'];
   if (id === 'slideReviewTest') return ['run', 'slide-review:test:verbose'];
+  if (id === 'authSmoke') return [...args, '--verbose'];
   if (args[0] === 'test') {
     const separator = args.indexOf('--');
     const focused = separator >= 0 ? args.slice(separator + 1) : args.slice(1);

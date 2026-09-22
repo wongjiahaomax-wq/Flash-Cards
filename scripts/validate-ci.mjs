@@ -312,6 +312,7 @@ export function ciCommandArgs(id, args) {
   if (id === 'build') {
     return ['run', 'build:verbose'];
   }
+  if (id === 'authSmoke') return [...args, '--verbose'];
   if (id === 'svelte') {
     return [...args, '--', '--output', 'machine-verbose'];
   }
