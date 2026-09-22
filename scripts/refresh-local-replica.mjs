@@ -1,7 +1,8 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { buildLocalLearnerRuntimeResetSql } from './local-learner-runtime-reset.mjs';
 import {
@@ -48,6 +49,30 @@ function runWrangler(args, { capture = false } = {}) {
   }
   execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
   return '';
+}
+
+/** @param {string[]} args @returns {Promise<{ status: number, stderr: string }>} */
+function runWranglerAsync(args) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [wranglerCli, ...args], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+      shell: false
+    });
+    let stderr = '';
+    let settled = false;
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    /** @param {{ status: number, stderr: string }} result */
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    child.once('error', (error) => finish({ status: 1, stderr: `${stderr}${error instanceof Error ? error.message : String(error)}` }));
+    child.once('close', (status) => finish({ status: typeof status === 'number' ? status : 1, stderr }));
+  });
 }
 
 /** @param {string} sql @returns {D1Row[]} */
@@ -133,62 +158,105 @@ function localAssetRows() {
   );
 }
 
-/** @param {D1Row[] | null} [assetRows] @returns {R2RefreshResult} */
-function refreshR2(assetRows = null) {
+/**
+ * @param {D1Row[] | null} [assetRows]
+ * @param {{ execute?: (args: string[], context: { kind: 'remote-get' | 'local-put', key: string, file: string }) => Promise<{ status: number, stderr?: string }>, stagingDirectory?: string }} [options]
+ * @returns {Promise<R2RefreshResult>}
+ */
+export async function refreshR2(assetRows = null, options = {}) {
   const rows = assetRows ?? localAssetRows();
   const wrangler = readFileSync('wrangler.jsonc', 'utf8');
   const bucket = readR2BucketName(wrangler, 'MEDIA');
-  rmSync(mediaDir, { recursive: true, force: true });
-  mkdirSync(mediaDir, { recursive: true, mode: 0o700 });
+  const stagingDirectory = options.stagingDirectory ?? mediaDir;
+  const execute = options.execute ?? (async (args) => runWranglerAsync(args));
+  rmSync(stagingDirectory, { recursive: true, force: true });
+  mkdirSync(stagingDirectory, { recursive: true, mode: 0o700 });
 
   let copied = 0;
   let failed = 0;
   /** @type {string[]} */
   const failures = [];
+  let nextIndex = 0;
+  let writeTail = Promise.resolve();
+  /** @type {Promise<void>[]} */
+  const pendingWrites = [];
 
-  console.log(`Mirroring ${rows.length} teaching-media objects from production R2 into local R2...`);
-  for (const [index, row] of rows.entries()) {
-    const key = String(row.storage_key ?? '');
-    if (!key) {
-      failed += 1;
-      failures.push('(empty storage key)');
-      continue;
-    }
-
-    const file = join(mediaDir, stagingFilenameForKey(key));
-    const remote = spawnSync(process.execPath, [wranglerCli, ...buildRemoteR2GetArgs(bucket, key, file)], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    if (remote.status !== 0) {
-      failed += 1;
-      failures.push(key);
-      console.warn(`  [${index + 1}/${rows.length}] could not read production R2 object: ${key}`);
-      continue;
-    }
-
-    const local = spawnSync(
-      process.execPath,
-      [wranglerCli, ...buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? ''))],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
-    );
-    try {
-      if (existsSync(file)) unlinkSync(file);
-    } catch {
-      // Staging cleanup is best-effort; .wrangler remains gitignored.
-    }
-    if (local.status !== 0) {
-      failed += 1;
-      failures.push(key);
-      console.warn(`  [${index + 1}/${rows.length}] could not write local R2 object: ${key}`);
-      continue;
-    }
-
-    copied += 1;
-    console.log(`  [${index + 1}/${rows.length}] copied ${key}`);
+  /** @param {string} key @param {string} reason */
+  function recordFailure(key, reason) {
+    failed += 1;
+    failures.push(key);
+    console.warn(`  could not ${reason}: ${key}`);
   }
 
-  rmSync(mediaDir, { recursive: true, force: true });
+  /** @param {() => Promise<void>} operation @returns {Promise<void>} */
+  function enqueueLocalWrite(operation) {
+    const result = writeTail.then(operation, operation);
+    writeTail = result.then(() => undefined, () => undefined);
+    pendingWrites.push(result);
+    return result;
+  }
+
+  /** @param {D1Row} row @param {number} index */
+  async function processAsset(row, index) {
+    const key = String(row.storage_key ?? '');
+    if (!key) {
+      recordFailure('(empty storage key)', 'read production R2 object');
+      return;
+    }
+
+    const file = join(stagingDirectory, stagingFilenameForKey(key));
+    try {
+      const remote = await execute(buildRemoteR2GetArgs(bucket, key, file), { kind: 'remote-get', key, file });
+      if (Number(remote?.status) !== 0) {
+        recordFailure(key, 'read production R2 object');
+        try { if (existsSync(file)) unlinkSync(file); } catch { /* best-effort per-key cleanup */ }
+        return;
+      }
+
+      enqueueLocalWrite(async () => {
+        try {
+          const local = await execute(
+            buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? '')),
+            { kind: 'local-put', key, file }
+          );
+          if (Number(local?.status) !== 0) {
+            recordFailure(key, 'write local R2 object');
+            return;
+          }
+          copied += 1;
+          console.log(`  [${index + 1}/${rows.length}] copied ${key}`);
+        } catch {
+          recordFailure(key, 'write local R2 object');
+        } finally {
+          try { if (existsSync(file)) unlinkSync(file); } catch { /* best-effort per-key cleanup */ }
+        }
+      });
+    } catch {
+      recordFailure(key, 'read production R2 object');
+      try { if (existsSync(file)) unlinkSync(file); } catch { /* best-effort per-key cleanup */ }
+    }
+  }
+
+  async function downloadWorker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= rows.length) return;
+      await processAsset(rows[index], index);
+    }
+  }
+
+  console.log(`Mirroring ${rows.length} teaching-media objects from production R2 into local R2...`);
+  try {
+    const workerCount = Math.min(4, rows.length);
+    await Promise.allSettled(Array.from({ length: workerCount }, () => downloadWorker()));
+    await Promise.allSettled(pendingWrites);
+  } finally {
+    // Every started download and local write has settled before the shared
+    // directory is removed. Per-key cleanup remains best-effort above.
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+
   console.log(`Local R2 refresh complete: ${copied} copied, ${failed} failed/missing.`);
   if (failures.length) console.warn(`Missing/failed R2 keys (${failures.length}): ${failures.join(', ')}`);
   if (rows.length > 0 && copied === 0) {
@@ -224,12 +292,12 @@ async function main() {
   }
   if (command === 'r2') {
     applyLocalMigrations();
-    refreshR2();
+    await refreshR2();
     return;
   }
 
   const assets = refreshD1();
-  refreshR2(assets.map((row) => ({ storage_key: row.storage_key, mime_type: row.mime_type })));
+  await refreshR2(assets.map((row) => ({ storage_key: row.storage_key, mime_type: row.mime_type })));
 
   if (command === 'setup') {
     console.log('\nLocal replica is ready. Next:');
@@ -238,9 +306,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`\nLocal replica refresh failed: ${message}`);
-  console.error('Production was not mutated by this workflow.');
-  process.exitCode = 1;
-});
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`\nLocal replica refresh failed: ${message}`);
+    console.error('Production was not mutated by this workflow.');
+    process.exitCode = 1;
+  });
+}

@@ -92,6 +92,42 @@ async function putImmutableStagingObject(bucket, key, bytes, contentType) {
 }
 
 /**
+ * Stage independent derived media through a small bounded pool. Once one
+ * write fails, workers stop claiming new media, but every already-started
+ * write is awaited before the caller compensates the staging set.
+ *
+ * @param {R2Bucket} bucket
+ * @param {{ key: string, bytes: Uint8Array, contentType: string }[]} objects
+ * @param {string[]} stagedKeys
+ */
+async function putMediaObjectsBounded(bucket, objects, stagedKeys) {
+  let nextIndex = 0;
+  /** @type {unknown} */
+  let firstError = null;
+
+  async function worker() {
+    while (true) {
+      if (firstError) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= objects.length) return;
+
+      const object = objects[index];
+      try {
+        await putImmutableStagingObject(bucket, object.key, object.bytes, object.contentType);
+        stagedKeys.push(object.key);
+      } catch (error) {
+        firstError ??= error;
+        return;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(4, objects.length) }, () => worker()));
+  if (firstError) throw firstError;
+}
+
+/**
  * Store the exact administrator-confirmed ZIP at the original immutable key:
  *
  *   imports/staging/<job-id>.zip
@@ -135,8 +171,10 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
     }
   }
 
+  /** @type {{ key: string, bytes: Uint8Array, contentType: string } | null} */
+  let planObject = null;
   /** @type {{ key: string, bytes: Uint8Array, contentType: string }[]} */
-  const derivedObjects = [];
+  const mediaObjects = [];
 
   if (snapshot) {
     const packageSha256 = String(snapshot.packageSha256 ?? '').trim();
@@ -149,7 +187,7 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
       packageSha256,
       manifest: snapshot.manifest
     }));
-    derivedObjects.push({ key: planKey, bytes: planBytes, contentType: 'application/json' });
+    planObject = { key: planKey, bytes: planBytes, contentType: 'application/json' };
 
     for (const asset of snapshot.manifest.assets ?? []) {
       if (asset.operation !== 'create') continue;
@@ -161,7 +199,7 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
       if (mediaBytes.byteLength > MAX_IMAGE_BYTES) {
         throw new Error(`Staged media for import Asset ${asset.id} exceeds the configured image limit.`);
       }
-      derivedObjects.push({
+      mediaObjects.push({
         key: importMediaStorageKey(jobId, asset.id),
         bytes: mediaBytes,
         contentType: asset.mimeType || 'application/octet-stream'
@@ -169,7 +207,9 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
     }
   }
 
-  const incomingBytes = bytes.byteLength + derivedObjects.reduce((total, object) => total + object.bytes.byteLength, 0);
+  const incomingBytes = bytes.byteLength
+    + (planObject?.bytes.byteLength ?? 0)
+    + mediaObjects.reduce((total, object) => total + object.bytes.byteLength, 0);
   const capacity = await assertManagedBucketCapacity(bucket, incomingBytes);
   const stagedKeys = [];
 
@@ -177,10 +217,12 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
     await putImmutableStagingObject(bucket, packageKey, bytes, 'application/zip');
     stagedKeys.push(packageKey);
 
-    for (const object of derivedObjects) {
-      await putImmutableStagingObject(bucket, object.key, object.bytes, object.contentType);
-      stagedKeys.push(object.key);
+    if (planObject) {
+      await putImmutableStagingObject(bucket, planObject.key, planObject.bytes, planObject.contentType);
+      stagedKeys.push(planObject.key);
     }
+
+    await putMediaObjectsBounded(bucket, mediaObjects, stagedKeys);
   } catch (error) {
     for (const key of stagedKeys.reverse()) {
       try { await bucket.delete(key); }

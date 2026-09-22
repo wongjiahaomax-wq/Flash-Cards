@@ -64,6 +64,8 @@
   });
 
   const phaseLabels = {
+    staging: 'Staging package',
+    staging_failed: 'Staging failed',
     validate_topics: 'Validating Topics',
     validate_question_prompts: 'Validating Question Prompts',
     validate_cases: 'Validating Cases',
@@ -132,6 +134,7 @@
   }
 
   function canResume(job) {
+    if (['staging', 'staging_failed'].includes(job.phase)) return false;
     return ['validating', 'ready', 'importing', 'failed'].includes(job.status);
   }
 
@@ -341,6 +344,8 @@
           </div>
           <p class="phase">Phase: {phaseLabels[job.phase] ?? job.phase} · cursor {job.cursor}</p>
           {#if job.lastError}<p class="job-error">{job.lastError}</p>{/if}
+          {#if job.phase === 'staging'}<p class="warning-inline">Staging is still settling. Processing, resume, and cleanup remain unavailable until the staging owner releases its fence.</p>{/if}
+          {#if job.phase === 'staging_failed'}<p class="warning-inline">This package did not finish staging and cannot be retried or resumed. Start a new import from the exact reviewed ZIP.</p>{/if}
           {#if job.status === 'cancelled' && hasDomainWrites(job)}<p class="warning-inline">Cancelled after writes began: already committed content was not rolled back.</p>{/if}
           {#if job.status === 'complete'}<p class="success-inline">Import complete. The temporary staged ZIP has been removed; imported teaching images remain.</p>{/if}
           <div class="actions">

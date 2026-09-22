@@ -67,6 +67,12 @@ export const WRITE_PHASES = [
 export const IMPORT_PHASES = [...VALIDATION_PHASES, ...WRITE_PHASES, 'finalize'];
 
 const RESUMABLE_STATUSES = new Set(['validating', 'ready', 'importing', 'failed']);
+const INCOMPLETE_STAGING_PHASES = new Set(['staging', 'staging_failed']);
+
+/** @param {any} job */
+function isIncompleteStaging(job) {
+  return INCOMPLETE_STAGING_PHASES.has(job?.phase);
+}
 
 /** @param {any} row @param {Record<string, unknown>} expected */
 function fieldsMatch(row, expected) {
@@ -565,18 +571,32 @@ export async function createImportJob(d1, bucket, bytes, createdBy) {
   const now = Date.now();
   const storageKey = importPackageStorageKey(id);
   const total = importPlanTotalCount(plan);
+  const stagingToken = crypto.randomUUID();
   await d1.prepare(`INSERT INTO import_jobs (
     id, package_id, package_sha256, package_storage_key, status, phase, cursor,
-    processed_count, total_count, created_by, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, 'validating', ?, 0, 0, ?, ?, ?, ?)`)
-    .bind(id, plan.manifest.packageId, digest, storageKey, VALIDATION_PHASES[0], total, createdBy, now, now).run();
+    processed_count, total_count, created_by, created_at, updated_at,
+    lease_token, lease_expires_at
+  ) VALUES (?, ?, ?, ?, 'validating', 'staging', 0, 0, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, plan.manifest.packageId, digest, storageKey, total, createdBy, now, now, stagingToken, now + IMPORT_LEASE_MS).run();
   try {
     await stageImportPackage(bucket, id, bytes);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to stage import package.';
-    await d1.prepare(`UPDATE import_jobs SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`).bind(message, Date.now(), id).run();
+    try {
+      await d1.prepare(`UPDATE import_jobs
+        SET status = 'failed', phase = 'staging_failed', last_error = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL
+        WHERE id = ? AND status = 'validating' AND phase = 'staging' AND lease_token = ?`)
+        .bind(message, Date.now(), id, stagingToken).run();
+    } catch (transitionError) {
+      console.error('Unable to record fenced import staging failure.', { id, transitionError });
+    }
     throw error;
   }
+  const transition = await d1.prepare(`UPDATE import_jobs
+    SET phase = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL
+    WHERE id = ? AND status = 'validating' AND phase = 'staging' AND lease_token = ?`)
+    .bind(VALIDATION_PHASES[0], Date.now(), id, stagingToken).run();
+  if (!changed(transition)) throw new ContentPackageError('Import staging completed but its ownership fence changed; the job remains unprocessable until reviewed.');
   return serializeImportJob(await getImportJob(d1, id));
 }
 
@@ -584,6 +604,7 @@ export async function createImportJob(d1, bucket, bytes, createdBy) {
 async function claimJob(d1, id) {
   const existing = await getImportJob(d1, id);
   if (!existing) return { kind: 'missing', job: null };
+  if (isIncompleteStaging(existing)) return { kind: 'incomplete_staging', job: existing };
   if (!RESUMABLE_STATUSES.has(existing.status)) return { kind: 'terminal', job: existing };
   const token = crypto.randomUUID();
   const now = Date.now();
@@ -591,6 +612,7 @@ async function claimJob(d1, id) {
     SET lease_token = ?, lease_expires_at = ?, updated_at = ?
     WHERE id = ?
       AND status IN ('validating', 'ready', 'importing', 'failed')
+      AND phase NOT IN ('staging', 'staging_failed')
       AND (lease_expires_at IS NULL OR lease_expires_at < ?)`)
     .bind(token, now + IMPORT_LEASE_MS, now, id, now).run();
   if (!changed(result)) return { kind: 'busy', job: await getImportJob(d1, id) };
@@ -621,10 +643,12 @@ async function checkpoint(d1, job, token, patch) {
 export async function processNextImportChunk(d1, bucket, id) {
   const claim = await claimJob(d1, id);
   if (claim.kind === 'missing') throw new ContentPackageError('Import job was not found.');
+  if (claim.kind === 'incomplete_staging') throw new ContentPackageError('Import staging is incomplete; this job cannot be processed or resumed. Start a new import from the exact reviewed ZIP.');
   if (claim.kind === 'busy') return { busy: true, job: serializeImportJob(claim.job) };
   if (claim.kind === 'terminal') return { busy: false, job: serializeImportJob(claim.job) };
 
   const { token, job } = claim;
+  if (isIncompleteStaging(job)) throw new ContentPackageError('Import staging is incomplete; this job cannot be processed or resumed. Start a new import from the exact reviewed ZIP.');
   try {
     // Finalization deliberately does not re-read the staged ZIP. If an HTTP
     // request dies after R2 deletion but before the D1 checkpoint, retrying the
@@ -680,7 +704,7 @@ export async function processNextImportChunk(d1, bucket, id) {
     throw new ContentPackageError(`Import job has unknown phase ${job.phase}.`);
   } catch (error) {
     const message = error instanceof ContentPackageError ? error.issues.join(' ') : error instanceof Error ? error.message : 'Import processing failed.';
-    await d1.prepare(`UPDATE import_jobs SET status = 'failed', last_error = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ?`).bind(message, Date.now(), id, token).run();
+    await d1.prepare(`UPDATE import_jobs SET status = 'failed', last_error = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ? AND status IN ('validating', 'ready', 'importing', 'failed') AND phase = ?`).bind(message, Date.now(), id, token, job.phase).run();
     throw error;
   }
 }
@@ -691,6 +715,7 @@ export async function cancelImportJob(d1, bucket, id) {
   if (!job) throw new ContentPackageError('Import job was not found.');
   if (job.status === 'complete') throw new ContentPackageError('A completed import cannot be cancelled.');
   if (job.status === 'cancelled') return serializeImportJob(job);
+  if (job.phase === 'staging') throw new ContentPackageError('Import staging is still settling; cancellation is deferred until all staging writes have settled.');
   const now = Date.now();
   // Never infer that an executing request is gone merely because its timestamp
   // passed. An old request may still be running and may still hold side effects.
@@ -698,8 +723,8 @@ export async function cancelImportJob(d1, bucket, id) {
   // replaces an expired lease token and clears the new token on checkpoint.
   const result = await d1.prepare(`UPDATE import_jobs
     SET status = 'cancelled', updated_at = ?, completed_at = ?, lease_token = NULL, lease_expires_at = NULL
-    WHERE id = ? AND status <> 'complete' AND lease_token IS NULL`)
-    .bind(now, now, id).run();
+    WHERE id = ? AND status = ? AND phase = ? AND status <> 'complete' AND lease_token IS NULL`)
+    .bind(now, now, id, job.status, job.phase).run();
   if (!changed(result)) throw new ContentPackageError('This import is currently processing or has a stale lease. Resume it to recover the lease, then pause and retry cancellation.');
   try { await deleteStagedImportPackage(bucket, id); }
   catch (error) { console.error('Unable to remove cancelled import staging package.', { id, error }); }

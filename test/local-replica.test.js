@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readFileSync as readBytes, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { buildLocalAdminSql } from '../scripts/bootstrap-local-admin-lib.mjs';
+import { refreshR2 } from '../scripts/refresh-local-replica.mjs';
 import {
   CONTENT_TABLES,
   FORBIDDEN_PRODUCTION_TABLES,
@@ -76,6 +79,63 @@ test('R2 command builders enforce remote GET and local PUT directions', () => {
   assert.equal(put[2], 'put');
   assert.ok(put.includes('--local'));
   assert.equal(put.includes('--remote'), false);
+});
+
+test('local R2 refresh overlaps at most four remote GETs while serializing local PUTs', async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => ({
+    storage_key: `teaching/asset-${index}.png`,
+    mime_type: 'image/png'
+  }));
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-'));
+  let activeGets = 0;
+  let maxGets = 0;
+  let activePuts = 0;
+  let maxPuts = 0;
+  let getsWhilePutWasActive = 0;
+  const remoteCommands = /** @type {string[][]} */ ([]);
+  const localCommands = /** @type {string[][]} */ ([]);
+
+  try {
+    const result = await refreshR2(rows, {
+      stagingDirectory,
+      execute: async (args, context) => {
+        if (context.kind === 'remote-get') {
+          remoteCommands.push(args);
+          activeGets += 1;
+          maxGets = Math.max(maxGets, activeGets);
+          if (activePuts > 0) getsWhilePutWasActive += 1;
+          await new Promise((resolve) => setTimeout(resolve, 4));
+          activeGets -= 1;
+          if (context.key.endsWith('asset-1.png')) return { status: 1 };
+          writeFileSync(context.file, Buffer.from(context.key));
+          return { status: 0 };
+        }
+
+        localCommands.push(args);
+        assert.equal(existsSync(context.file), true, 'a local PUT must follow its successful remote GET');
+        assert.deepEqual([...readBytes(context.file)], [...Buffer.from(context.key)]);
+        activePuts += 1;
+        maxPuts = Math.max(maxPuts, activePuts);
+        await new Promise((resolve) => setTimeout(resolve, 6));
+        activePuts -= 1;
+        if (context.key.endsWith('asset-2.png')) return { status: 1 };
+        return { status: 0 };
+      }
+    });
+
+    assert.equal(result.copied, 6);
+    assert.equal(result.failed, 2);
+    assert.deepEqual(new Set(result.failures), new Set(['teaching/asset-1.png', 'teaching/asset-2.png']));
+    assert.ok(maxGets <= 4, `remote GET concurrency exceeded four: ${maxGets}`);
+    assert.ok(maxGets > 1, 'independent remote GETs should overlap');
+    assert.equal(maxPuts, 1, 'local R2 PUTs must remain serialized');
+    assert.ok(getsWhilePutWasActive > 0, 'remote GETs should continue while the local PUT lane is active');
+    assert.ok(remoteCommands.every((args) => args.includes('--remote') && !args.includes('--local')));
+    assert.ok(localCommands.every((args) => args.includes('--local') && !args.includes('--remote')));
+    assert.equal(existsSync(stagingDirectory), false, 'shared staging cleanup waits for all workers to settle');
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
 });
 
 test('Vite platform proxy persists local state and refuses remote binding connections', () => {
