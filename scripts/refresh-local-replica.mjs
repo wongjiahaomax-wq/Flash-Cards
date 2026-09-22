@@ -213,7 +213,7 @@ export async function refreshR2(assetRows = null, options = {}) {
         return;
       }
 
-      enqueueLocalWrite(async () => {
+      await enqueueLocalWrite(async () => {
         try {
           const local = await execute(
             buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? '')),

@@ -12,6 +12,7 @@ import {
   getImportJob,
   processNextImportChunk
 } from '../src/lib/server/import/resumable-content-package-runtime.js';
+import { importPackageStorageKey, importPlanStorageKey } from '../src/lib/server/storage/import-packages.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 const runtimeSource = readFileSync(new URL('../src/lib/server/import/resumable-content-package-runtime.js', import.meta.url), 'utf8');
@@ -48,15 +49,19 @@ function manifest(packageId = 'staging-safety') {
 }
 
 class D1Statement {
-  constructor(sqlite, sql) { this.sqlite = sqlite; this.sql = sql; this.params = []; }
+  constructor(owner, sql) { this.owner = owner; this.sqlite = owner.sqlite; this.sql = sql; this.params = []; }
   bind(...params) { this.params = params; return this; }
   async first() { return this.sqlite.prepare(this.sql).get(...this.params) ?? null; }
-  async run() { const result = this.sqlite.prepare(this.sql).run(...this.params); return { meta: { changes: Number(result.changes) } }; }
+  async run() {
+    this.owner.beforeRun?.(this.sql, this.params);
+    const result = this.sqlite.prepare(this.sql).run(...this.params);
+    return { meta: { changes: Number(result.changes) } };
+  }
 }
 
 class D1Fake {
-  constructor(sqlite) { this.sqlite = sqlite; }
-  prepare(sql) { return new D1Statement(this.sqlite, sql); }
+  constructor(sqlite, beforeRun = null) { this.sqlite = sqlite; this.beforeRun = beforeRun; }
+  prepare(sql) { return new D1Statement(this, sql); }
 }
 
 class StagingBucket {
@@ -162,6 +167,62 @@ test('failed staging is fenced, remains unprocessable, and retains the ordinary 
     assert.equal(bucket.deleted.length > 0, true);
   } finally {
     sqlite.close();
+  }
+});
+
+test('stale staging completion and failure cannot overwrite cancellation or a replacement owner token', async () => {
+  {
+    const sqlite = new DatabaseSync(':memory:');
+    applyCurrentSchema(sqlite);
+    let fencedCompletion = false;
+    const d1 = new D1Fake(sqlite, (sql, params) => {
+      if (fencedCompletion || !sql.includes('SET phase = ?, updated_at = ?, lease_token = NULL')) return;
+      fencedCompletion = true;
+      sqlite.prepare(`UPDATE import_jobs
+        SET status = 'cancelled', phase = 'staging', lease_token = NULL, lease_expires_at = NULL
+        WHERE id = ?`).run(params[2]);
+    });
+    const bucket = new StagingBucket();
+    try {
+      await assert.rejects(
+        () => createImportJob(d1, bucket, archiveFor(manifest('stale-completion')), 'admin-user'),
+        /ownership fence changed/i
+      );
+      const row = sqlite.prepare('SELECT id, status, phase, lease_token FROM import_jobs').get();
+      assert.equal(row.status, 'cancelled');
+      assert.equal(row.phase, 'staging');
+      assert.equal(row.lease_token, null);
+      assert.ok(bucket.objects.has(importPackageStorageKey(row.id)));
+      assert.ok(bucket.objects.has(importPlanStorageKey(row.id)));
+    } finally {
+      sqlite.close();
+    }
+  }
+
+  {
+    const sqlite = new DatabaseSync(':memory:');
+    applyCurrentSchema(sqlite);
+    let fencedFailure = false;
+    const d1 = new D1Fake(sqlite, (sql, params) => {
+      if (fencedFailure || !sql.includes("SET status = 'failed', phase = 'staging_failed'")) return;
+      fencedFailure = true;
+      sqlite.prepare(`UPDATE import_jobs
+        SET status = 'validating', phase = 'staging', lease_token = 'replacement-owner', lease_expires_at = ?
+        WHERE id = ?`).run(Date.now() + 60_000, params[2]);
+    });
+    const bucket = new StagingBucket({ failPlanPut: true });
+    try {
+      await assert.rejects(
+        () => createImportJob(d1, bucket, archiveFor(manifest('stale-failure')), 'admin-user'),
+        /injected plan PUT failure/
+      );
+      const row = sqlite.prepare('SELECT status, phase, lease_token FROM import_jobs').get();
+      assert.equal(row.status, 'validating');
+      assert.equal(row.phase, 'staging');
+      assert.equal(row.lease_token, 'replacement-owner');
+    } finally {
+      sqlite.close();
+    }
   }
 });
 

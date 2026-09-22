@@ -138,6 +138,59 @@ test('local R2 refresh overlaps at most four remote GETs while serializing local
   }
 });
 
+test('local R2 refresh applies backpressure before claiming another asset behind a slow PUT', async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => ({
+    storage_key: `teaching/backpressure-${index}.png`,
+    mime_type: 'image/png'
+  }));
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-backpressure-'));
+  /** @type {(value?: unknown) => void} */
+  let releaseFirstPut = () => {};
+  const firstPutReleasedPromise = new Promise((resolve) => { releaseFirstPut = resolve; });
+  /** @type {(value?: unknown) => void} */
+  let firstPutStartedResolve = () => {};
+  const firstPutStarted = new Promise((resolve) => { firstPutStartedResolve = resolve; });
+  let firstPutReleased = false;
+  let firstLocalPut = true;
+  let remoteGetsStarted = 0;
+  let fifthGetBeforeRelease = false;
+
+  try {
+    const refresh = refreshR2(rows, {
+      stagingDirectory,
+      execute: async (_args, context) => {
+        if (context.kind === 'remote-get') {
+          remoteGetsStarted += 1;
+          if (!firstPutReleased && remoteGetsStarted > 4) fifthGetBeforeRelease = true;
+          await Promise.resolve();
+          writeFileSync(context.file, Buffer.from(context.key));
+          return { status: 0 };
+        }
+
+        if (firstLocalPut) {
+          firstLocalPut = false;
+          firstPutStartedResolve();
+          await firstPutReleasedPromise;
+        }
+        return { status: 0 };
+      }
+    });
+
+    await firstPutStarted;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(remoteGetsStarted, 4, 'no worker may claim a fifth asset while the first four PUTs are outstanding');
+    assert.equal(fifthGetBeforeRelease, false);
+
+    firstPutReleased = true;
+    releaseFirstPut();
+    const result = await refresh;
+    assert.equal(result.copied, rows.length);
+    assert.equal(remoteGetsStarted, rows.length);
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
 test('Vite platform proxy persists local state and refuses remote binding connections', () => {
   const config = readFileSync(new URL('../svelte.config.js', import.meta.url), 'utf8');
   assert.match(config, /persist:\s*true/);
