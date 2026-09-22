@@ -63,21 +63,11 @@ export async function loadCaseSource(db, caseId, studyConceptId, questionPoolMod
     distance += 1;
   }
 
-  const promptRows = await db
-    .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
-    .from(questionPrompts)
-    .where(and(eq(questionPrompts.isActive, true), isNull(questionPrompts.previewSessionId)));
-  const prompts = new Map(promptRows.map((prompt) => [prompt.id, prompt.promptMd]));
-
   const caseQuestionRows = await db
     .select({ questionPromptId: caseQuestions.questionPromptId, answerMd: caseQuestions.answerMd, isActive: caseQuestions.isActive })
     .from(caseQuestions)
     .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.isActive, true)))
     .orderBy(asc(caseQuestions.createdAt), asc(caseQuestions.questionPromptId));
-  const caseQuestionInputs = caseQuestionRows
-    .filter((question) => prompts.has(question.questionPromptId))
-    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '' }));
-
   const conceptIds = [studyConcept.id, ...ancestors.map((ancestor) => ancestor.id)];
   const conceptQuestionRows = await db
     .select({
@@ -89,15 +79,14 @@ export async function loadCaseSource(db, caseId, studyConceptId, questionPoolMod
     })
     .from(conceptQuestions)
     .where(and(eq(conceptQuestions.isActive, true), inArray(conceptQuestions.conceptId, conceptIds)));
-  const studyQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId === studyConcept.id && prompts.has(question.questionPromptId))
-    .map((question) => ({ ...question, sourceConceptId: question.conceptId, promptMd: prompts.get(question.questionPromptId) ?? '' }));
-  const ancestorQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId !== studyConcept.id && prompts.has(question.questionPromptId))
+  const studyQuestionRows = conceptQuestionRows
+    .filter((question) => question.conceptId === studyConcept.id)
+    .map((question) => ({ ...question, sourceConceptId: question.conceptId }));
+  const ancestorQuestionRows = conceptQuestionRows
+    .filter((question) => question.conceptId !== studyConcept.id)
     .map((question) => ({
       ...question,
       sourceConceptId: question.conceptId,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
       distance: ancestors.find((ancestor) => ancestor.id === question.conceptId)?.distance ?? 1
     }));
 
@@ -120,9 +109,8 @@ export async function loadCaseSource(db, caseId, studyConceptId, questionPoolMod
         .where(and(eq(sharedQuestions.isActive, true), inArray(sharedQuestions.reuseScopeTagId, activeCaseTagIds)))
         .orderBy(asc(sharedQuestions.createdAt), asc(sharedQuestions.id))
     : [];
-  const tagSharedQuestions = sharedQuestionRows
-    .filter((question) => prompts.has(question.questionPromptId))
-    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '', sourceSharedQuestionId: question.id }));
+  const tagSharedQuestionRows = sharedQuestionRows
+    .map((question) => ({ ...question, sourceSharedQuestionId: question.id }));
 
   const assetRows = await db
     .select({
@@ -143,17 +131,40 @@ export async function loadCaseSource(db, caseId, studyConceptId, questionPoolMod
     caseId,
     questionPoolMode,
     rng,
-    prompts,
     fixedAssetCount: assetRows.length
   });
+
+  const promptSources = questionPoolMode === 'core'
+    ? [caseQuestionRows, stimulus.stimulusGroupQuestions, stimulus.stimulusOptionQuestions]
+    : [
+        caseQuestionRows,
+        studyQuestionRows,
+        tagSharedQuestionRows,
+        ancestorQuestionRows,
+        stimulus.stimulusGroupQuestions,
+        stimulus.reusableAssetQuestions,
+        stimulus.stimulusOptionQuestions
+      ];
+  const prompts = await loadActiveQuestionPrompts(
+    db,
+    promptSources.flatMap((questions) => questions.map((question) => question.questionPromptId))
+  );
+  const caseQuestionInputs = attachActivePromptText(caseQuestionRows, prompts);
+  const studyQuestions = attachActivePromptText(studyQuestionRows, prompts);
+  const ancestorQuestions = attachActivePromptText(ancestorQuestionRows, prompts);
+  const tagSharedQuestions = attachActivePromptText(tagSharedQuestionRows, prompts);
+  const stimulusGroupQuestions = attachActivePromptText(stimulus.stimulusGroupQuestions, prompts);
+  const reusableAssetQuestions = attachActivePromptText(stimulus.reusableAssetQuestions, prompts);
+  const stimulusOptionQuestions = attachActivePromptText(stimulus.stimulusOptionQuestions, prompts);
+
   const questionPool = resolveQuestionPoolForMode(questionPoolMode, {
     caseQuestions: caseQuestionInputs,
     studyConceptQuestions: studyQuestions,
     tagSharedQuestions,
     ancestorConceptQuestions: ancestorQuestions,
-    stimulusGroupQuestions: stimulus.stimulusGroupQuestions,
-    assetQuestions: stimulus.reusableAssetQuestions,
-    stimulusOptionQuestions: stimulus.stimulusOptionQuestions
+    stimulusGroupQuestions,
+    assetQuestions: reusableAssetQuestions,
+    stimulusOptionQuestions
   });
 
   return {
@@ -167,4 +178,36 @@ export async function loadCaseSource(db, caseId, studyConceptId, questionPoolMod
     ],
     groupCoverage: stimulus.groupCoverage
   };
+}
+
+const ACTIVE_PROMPT_QUERY_BATCH_SIZE = 99; // Leaves one D1 bind for the active-state predicate.
+
+/** @param {LearningDb} db @param {string[]} questionPromptIds */
+async function loadActiveQuestionPrompts(db, questionPromptIds) {
+  const ids = [...new Set(questionPromptIds)];
+  const rows = [];
+  for (let offset = 0; offset < ids.length; offset += ACTIVE_PROMPT_QUERY_BATCH_SIZE) {
+    const batch = ids.slice(offset, offset + ACTIVE_PROMPT_QUERY_BATCH_SIZE);
+    rows.push(...await db
+      .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
+      .from(questionPrompts)
+      .where(and(
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId),
+        inArray(questionPrompts.id, batch)
+      )));
+  }
+  return new Map(rows.map((prompt) => [prompt.id, prompt.promptMd]));
+}
+
+/**
+ * @template {{ questionPromptId: string }} T
+ * @param {T[]} questions
+ * @param {Map<string, string>} prompts
+ * @returns {(T & { promptMd: string })[]}
+ */
+function attachActivePromptText(questions, prompts) {
+  return questions
+    .filter((question) => prompts.has(question.questionPromptId))
+    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '' }));
 }

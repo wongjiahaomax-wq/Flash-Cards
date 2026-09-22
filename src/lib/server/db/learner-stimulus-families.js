@@ -46,10 +46,10 @@ function selectStimulusOption(group, options, questionPoolMode, rng) {
  * resolution remain in `learning.js` / learner policy modules.
  *
  * @param {LearningDb} db
- * @param {{ caseId: string, questionPoolMode: QuestionPoolMode, rng: () => number, prompts: Map<string, string>, fixedAssetCount: number }} input
+ * @param {{ caseId: string, questionPoolMode: QuestionPoolMode, rng: () => number, fixedAssetCount: number }} input
  */
 export async function loadLearnerStimulusFamilies(db, input) {
-  const { caseId, questionPoolMode, rng, prompts, fixedAssetCount } = input;
+  const { caseId, questionPoolMode, rng, fixedAssetCount } = input;
   const groupRows = await db
     .select({
       id: stimulusGroups.id,
@@ -139,14 +139,13 @@ export async function loadLearnerStimulusFamilies(db, input) {
   ]);
 
   const stimulusGroupQuestionsForReview = groupQuestionRows
-    .filter((question) => prompts.has(question.questionPromptId) && selectedOptions.some(({ group }) => group.id === question.stimulusGroupId))
-    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '', stimulusGroupId: question.stimulusGroupId }));
+    .filter((question) => selectedOptions.some(({ group }) => group.id === question.stimulusGroupId))
+    .map((question) => ({ ...question, stimulusGroupId: question.stimulusGroupId }));
   const reusableAssetQuestions = reusableRows.flatMap((question) => {
     const selected = selectedOptions.find(({ option }) => option.id === question.stimulusGroupOptionId);
-    if (!selected || selected.option.assetId !== question.assetId || !prompts.has(question.questionPromptId)) return [];
+    if (!selected || selected.option.assetId !== question.assetId) return [];
     return [{
       ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
       sourceAssetQuestionId: question.assetQuestionId,
       stimulusGroupId: selected.group.id,
       stimulusOptionId: selected.option.id
@@ -154,10 +153,9 @@ export async function loadLearnerStimulusFamilies(db, input) {
   });
   const stimulusOptionQuestionsForReview = optionQuestionRows.flatMap((question) => {
     const selected = selectedOptions.find(({ option }) => option.id === question.stimulusGroupOptionId);
-    if (!selected || !prompts.has(question.questionPromptId)) return [];
+    if (!selected) return [];
     return [{
       ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
       stimulusGroupId: selected.group.id,
       stimulusOptionId: selected.option.id
     }];
