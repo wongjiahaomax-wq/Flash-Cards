@@ -100,42 +100,33 @@
       {#if preview.snapshot.case.vignetteMd}<MarkdownContent class="case-vignette" source={preview.snapshot.case.vignetteMd} />{/if}
     </header>
 
-    {#if !revealed}
-      <section class="review-reveal-bar" aria-label="Reveal answers">
-        <div>
-          <strong>Reveal when you are ready</strong>
-          <p class="muted">This in-flow control stays available before a long Case preview without covering content.</p>
-        </div>
-        <button class="button primary action-button" type="button" onclick={() => (revealed = true)}>Reveal answers</button>
-      </section>
-    {/if}
-
-    {#if preview.snapshot.assets.length > 0}
-      <section class="review-section" aria-labelledby="assets-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Clinical stimulus</p>
-            <h2 id="assets-heading">{preview.snapshot.assets.length === 1 ? 'Image' : 'Images'}</h2>
+    <div class:has-assets={preview.snapshot.assets.length > 0} class="review-content-grid">
+      {#if preview.snapshot.assets.length > 0}
+        <section class="review-section" aria-labelledby="assets-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Clinical stimulus</p>
+              <h2 id="assets-heading">{preview.snapshot.assets.length === 1 ? 'Image' : 'Images'}</h2>
+            </div>
+            {#if preview.snapshot.assets.length > 1}<span class="muted">{preview.snapshot.assets.length} images shown together</span>{/if}
           </div>
-          {#if preview.snapshot.assets.length > 1}<span class="muted">{preview.snapshot.assets.length} images shown together</span>{/if}
-        </div>
-        <div class:singleAsset={preview.snapshot.assets.length === 1} class="asset-grid">
-          {#each preview.snapshot.assets as asset}
-            <figure>
-              <div class="asset-stage">
-                <button class="asset-image-button" type="button" aria-label="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
-                  <img src={asset.imageUrl} alt={asset.altTextSnapshot ?? asset.captionSnapshotMd ?? 'Teaching image'} />
-                </button>
-                <button class="asset-inspect-button" type="button" aria-label="Inspect image" title="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
-                  <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
-                </button>
-              </div>
-              {#if asset.captionSnapshotMd}<figcaption><MarkdownContent source={asset.captionSnapshotMd} /></figcaption>{/if}
-            </figure>
-          {/each}
-        </div>
-      </section>
-    {/if}
+          <div class:singleAsset={preview.snapshot.assets.length === 1} class="asset-grid">
+            {#each preview.snapshot.assets as asset}
+              <figure>
+                <div class="asset-stage">
+                  <button class="asset-image-button" type="button" aria-label="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
+                    <img src={asset.imageUrl} alt={asset.altTextSnapshot ?? asset.captionSnapshotMd ?? 'Teaching image'} />
+                  </button>
+                  <button class="asset-inspect-button" type="button" aria-label="Inspect image" title="Inspect image" onclick={(event) => openAssetInspection(asset, event)}>
+                    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+                  </button>
+                </div>
+                {#if asset.captionSnapshotMd}<figcaption><MarkdownContent source={asset.captionSnapshotMd} /></figcaption>{/if}
+              </figure>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
     {#if inspectedAsset}
       <div class="asset-modal-backdrop" role="presentation" onclick={handleImageDialogClick}>
@@ -157,33 +148,34 @@
       </div>
     {/if}
 
-    <section class="review-section" aria-labelledby="questions-heading">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Question set</p>
-          <h2 id="questions-heading">Questions</h2>
+      <section class="review-section" aria-labelledby="questions-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Question set</p>
+            <h2 id="questions-heading">Questions</h2>
+          </div>
+          <span class="muted">Read-only preview</span>
         </div>
-        <span class="muted">Read-only preview</span>
-      </div>
-      <div class="question-list">
-        {#each preview.snapshot.questions as question, index}
-          <article class="question-card">
-            <div class="question-number">{index + 1}</div>
-            <div class="question-content">
-              <MarkdownContent class="question-prompt" source={question.promptSnapshotMd} />
-              {#if revealed}
-                <div class="answer-block">
-                  <p class="answer-label">Answer</p>
-                  <MarkdownContent source={question.answerSnapshotMd} />
-                </div>
-              {:else}
-                <p class="muted think-prompt">Think through your answer before revealing.</p>
-              {/if}
-            </div>
-          </article>
-        {/each}
-      </div>
-    </section>
+        <div class="question-list">
+          {#each preview.snapshot.questions as question, index}
+            <article class="question-card">
+              <div class="question-number">{index + 1}</div>
+              <div class="question-content">
+                <MarkdownContent class="question-prompt" source={question.promptSnapshotMd} />
+                {#if revealed}
+                  <div class="answer-block">
+                    <p class="answer-label">Answer</p>
+                    <MarkdownContent source={question.answerSnapshotMd} />
+                  </div>
+                {:else}
+                  <p class="muted think-prompt">Think through your answer before revealing.</p>
+                {/if}
+              </div>
+            </article>
+          {/each}
+        </div>
+      </section>
+    </div>
 
     <section class="review-actions" aria-live="polite">
       {#if !revealed}
@@ -209,7 +201,7 @@
 {/if}
 
 <style>
-  .preview-shell { display:grid; gap:1.5rem; max-width:920px; }
+  .preview-shell { display:grid; width:min(1560px, calc(100% - 2rem)); max-width:1560px; gap:1.25rem; padding-bottom:2rem; }
   .preview-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.9rem; }
   .preview-nav a { text-decoration:none; }
   .preview-nav a:hover,.preview-nav a:focus-visible { text-decoration:underline; }
@@ -223,21 +215,20 @@
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .muted { color:#667085; }
-  .review-reveal-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.9rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#f8fafc; }
-  .review-reveal-bar p { margin:.25rem 0 0; font-size:.9rem; }
   .review-section { display:grid; gap:1rem; }
+  .review-content-grid { display:grid; gap:1.1rem; min-width:0; }
+  .review-content-grid.has-assets { grid-template-columns:minmax(0, 1.1fr) minmax(0, .9fr); align-items:start; }
   .section-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .section-heading h2 { margin:.15rem 0 0; }
   .asset-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .asset-grid.singleAsset { grid-template-columns:minmax(0,1fr); }
   figure { margin:0; display:grid; gap:.55rem; }
-  .asset-stage { position:relative; min-height:300px; display:grid; place-items:center; border:1px dashed #98a2b3; border-radius:14px; background:#eef2f6; }
-  .asset-stage img { display:block; width:100%; max-height:520px; object-fit:contain; border-radius:12px; }
-  .asset-image-button { display:grid; width:100%; height:100%; padding:.75rem; border:0; background:transparent; cursor:zoom-in; }
+  .asset-stage { position:relative; align-self:start; display:grid; place-items:center; width:100%; padding:.5rem; border:1px dashed #98a2b3; border-radius:14px; background:#eef2f6; }
+  .asset-stage img { display:block; width:auto; max-width:100%; height:auto; max-height:520px; object-fit:contain; border-radius:12px; }
+  .asset-image-button { display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
   .asset-image-button:focus-visible,.asset-inspect-button:focus-visible,.close-button:focus-visible { outline:3px solid rgba(52,64,84,.35); outline-offset:2px; }
   .asset-inspect-button { position:absolute; top:.75rem; right:.75rem; display:grid; place-items:center; width:2.25rem; height:2.25rem; padding:0; border:1px solid #cdd6e3; border-radius:999px; background:rgb(255 255 255 / 94%); color:#172033; cursor:zoom-in; box-shadow:0 2px 8px rgb(16 24 40 / 12%); }
   .asset-inspect-button svg { width:1.15rem; height:1.15rem; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:2; }
-  .singleAsset .asset-stage { min-height:390px; }
   figcaption { color:#667085; font-size:.88rem; }
   .asset-modal-backdrop { position:fixed; z-index:10; inset:0; display:grid; place-items:center; padding:1.5rem; background:rgb(16 24 40 / 78%); backdrop-filter:blur(3px); }
   .asset-dialog { box-sizing:border-box; width:min(92vw,1300px); max-width:calc(100vw - 2rem); max-height:calc(100vh - 2rem); overflow:hidden; border:1px solid rgb(255 255 255 / 45%); border-bottom:4px solid #172033; border-radius:18px; background:#fff; box-shadow:0 28px 90px rgb(16 24 40 / 38%); }
@@ -248,15 +239,15 @@
   .asset-dialog-image { display:block; width:100%; height:auto; max-width:1200px; max-height:calc(100vh - 10rem); border:1px solid #d0d5dd; border-radius:10px; background:#fff; box-shadow:0 12px 30px rgb(16 24 40 / 16%); object-fit:contain; }
   .asset-dialog-caption { margin:0; padding:.8rem 1.25rem 1rem; border-top:1px solid #dfe5ee; background:#fff; color:#667085; font-size:.9rem; line-height:1.5; }
   .close-button { padding:.6rem .95rem; border:1px solid #cdd6e3; border-radius:9px; background:#172033; color:#fff; font:inherit; font-weight:700; cursor:pointer; }
-  .question-list { display:grid; gap:.85rem; }
-  .question-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:1rem; padding:1.1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .question-list { display:grid; gap:.65rem; }
+  .question-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.8rem; padding:.9rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .question-number { display:grid; place-items:center; width:2rem; height:2rem; border-radius:999px; background:#172033; color:#fff; font-weight:700; }
   :global(.question-prompt) { font-size:1.05rem; font-weight:700; }
   .think-prompt { margin:.65rem 0 0; font-size:.9rem; }
   .answer-block { display:grid; gap:.4rem; margin-top:.9rem; padding-top:.9rem; border-top:1px solid #e6eaf0; }
   .answer-block :global(p) { margin:0; line-height:1.55; }
   .answer-label { color:#344054; font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
-  .review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(23,32,51,.1); }
+  .review-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem 1rem; border:1px solid #cdd6e3; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(23,32,51,.1); }
   .review-actions p { margin:.25rem 0 0; font-size:.9rem; }
   .action-button { min-width:150px; text-align:center; }
   .preview-error { margin:0; padding:1.25rem; border:1px solid #f0b7b1; border-radius:12px; background:#fff9f8; color:#7a271a; line-height:1.55; }
@@ -266,9 +257,9 @@
   .button.primary { border-color:#172033; background:#172033; color:#fff; }
   button:focus-visible,a:focus-visible { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
   @media (max-width:700px) {
-    .section-heading,.review-actions,.review-reveal-bar { display:grid; align-items:stretch; }
+    .section-heading,.review-actions { display:grid; align-items:stretch; }
     .asset-grid { grid-template-columns:1fr; }
-    .asset-stage,.singleAsset .asset-stage { min-height:260px; }
+    .review-content-grid.has-assets { grid-template-columns:1fr; }
     .asset-modal-backdrop { padding:.5rem; }
     .asset-dialog { width:calc(100vw - 1rem); max-height:calc(100vh - 1rem); }
     .asset-dialog-panel { max-height:calc(100vh - 1rem - 4px); }

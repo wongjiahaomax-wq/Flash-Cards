@@ -60,8 +60,7 @@ test('Production Case Editor opens the exact Case in read-only direct Study Prev
     await expect(inspect).toBeFocused();
   }
 
-  await expect(page.locator('.review-reveal-bar')).toBeVisible();
-  expect(await page.locator('.review-reveal-bar').evaluate((element) => getComputedStyle(element).position)).toBe('static');
+  await expect(page.locator('.review-reveal-bar')).toHaveCount(0);
   await page.locator('.review-actions').getByRole('button', { name: 'Reveal answers', exact: true }).click();
   await expect(page.getByRole('heading', { name: caseTitle, exact: true })).toBeVisible();
   await expect(page.getByText('Answers revealed', { exact: true })).toBeVisible();
