@@ -507,7 +507,7 @@
   figure { align-self:start; margin:0; display:grid; gap:.4rem; }
   .asset-stage { position:relative; align-self:start; display:grid; place-items:center; width:100%; padding:.5rem; border:1px dashed #98a2b3; border-radius:14px; background:#eef2f6; }
   .asset-stage img { display:block; width:auto; max-width:100%; height:auto; max-height:520px; object-fit:contain; border-radius:12px; }
-  .asset-image-button { display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
+  .asset-image-button { display:grid; place-items:center; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
   .asset-image-button:focus-visible,.asset-inspect-button:focus-visible,.close-button:focus-visible { outline:3px solid rgba(52,64,84,.35); outline-offset:2px; }
   .asset-inspect-button { position:absolute; top:.5rem; right:.5rem; display:grid; place-items:center; width:2.25rem; height:2.25rem; padding:0; border:1px solid #cdd6e3; border-radius:999px; background:rgb(255 255 255 / 94%); color:#172033; cursor:zoom-in; box-shadow:0 2px 8px rgb(16 24 40 / 12%); }
   .asset-inspect-button svg { width:1.15rem; height:1.15rem; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:2; }

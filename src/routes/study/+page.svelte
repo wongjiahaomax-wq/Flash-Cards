@@ -40,6 +40,10 @@
   let runMessage = $state('');
   let opening = $state(false);
   let planning = $state(false);
+  /** @type {number|null} */
+  let nextRepeatDueAt = $state(null);
+  /** @type {ReturnType<typeof setTimeout>|undefined} */
+  let repeatWaitTimer;
   let counting = $state(false);
   /** @type {number|null} */
   let eligibleCount = $state(null);
@@ -110,6 +114,45 @@
     }
   }
 
+  function clearRepeatWaitTimer() {
+    if (repeatWaitTimer) clearTimeout(repeatWaitTimer);
+    repeatWaitTimer = undefined;
+  }
+
+  /** @param {number|string|null|undefined} value */
+  function scheduleRepeatWait(value) {
+    clearRepeatWaitTimer();
+    const dueAt = Number(value);
+    if (!Number.isFinite(dueAt) || dueAt <= Date.now()) {
+      nextRepeatDueAt = null;
+      return;
+    }
+    nextRepeatDueAt = dueAt;
+    repeatWaitTimer = setTimeout(() => {
+      repeatWaitTimer = undefined;
+      nextRepeatDueAt = null;
+      runMessage = 'The next repeat is ready. Continue your Study session when ready.';
+    }, dueAt - Date.now() + 50);
+  }
+
+  /** @param {any} descriptor */
+  function descriptorFutureRepeatDueAt(descriptor) {
+    if (descriptor?.kind !== 'scheduled') return null;
+    const repeatEntries = /** @type {any[]} */ (Array.isArray(descriptor.repeatEntries) ? descriptor.repeatEntries : []);
+    const futureRepeat = repeatEntries
+      .filter((entry) => Number(entry.dueAt) > Date.now())
+      .sort((left, right) => Number(left.dueAt) - Number(right.dueAt))[0];
+    if (!futureRepeat) return null;
+
+    const dueRemaining = Math.max(0, Number(descriptor.capturedDue?.length ?? 0) - Number(descriptor.duePosition ?? 0));
+    const newRemaining = Math.max(0, Number(descriptor.capturedNew?.length ?? 0) - Number(descriptor.newPosition ?? 0));
+    const completed = new Set(descriptor.completedCaseIds ?? []).size;
+    const targetReached = descriptor.distinctCaseTarget == null
+      ? dueRemaining + newRemaining === 0
+      : completed >= Number(descriptor.distinctCaseTarget);
+    return targetReached ? Number(futureRepeat.dueAt) : null;
+  }
+
   function dismissCompletionSummary() {
     completionSummary = null;
     runMessage = '';
@@ -144,6 +187,7 @@
     try {
       browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
       browserRunState = browserRun ? 'resumable' : 'none';
+      scheduleRepeatWait(descriptorFutureRepeatDueAt(browserRun));
     } catch {
       browserRun = null;
       browserRunState = 'none';
@@ -153,6 +197,7 @@
     queueMicrotask(() => {
       if (browserRunState === 'none') refreshEligibleCount();
     });
+    return clearRepeatWaitTimer;
   });
 
   $effect(() => {
@@ -161,6 +206,7 @@
       clearLearnerStudyRun(localStorage);
       browserRun = null;
       browserRunState = 'none';
+      scheduleRepeatWait(null);
       runMessage = 'The discarded Review belonged to this Study session, so its saved session was cleared. Your learning progress was not reset.';
     }
   });
@@ -481,6 +527,7 @@
   }
 
   function openAlternateLauncher() {
+    scheduleRepeatWait(null);
     showAlternateLauncher = true;
     runMessage = '';
     scheduleEligibleCount();
@@ -524,9 +571,10 @@
 
   /** @param {any} descriptor */
   async function openRun(descriptor) {
-    if (!descriptor || data.activeReview || opening) return;
+    if (!descriptor || data.activeReview || opening || (nextRepeatDueAt != null && nextRepeatDueAt > Date.now())) return;
     opening = true;
     runMessage = '';
+    scheduleRepeatWait(null);
     try {
       const { ok, payload } = await requestNextLearnerStudyWork(descriptor);
       if (payload.descriptor) {
@@ -547,6 +595,7 @@
         return;
       }
       if (payload.status === 'waiting') {
+        scheduleRepeatWait(payload.nextRepeatDueAt);
         runMessage = `No new Case can be added yet. The next repeat needed for this session is ready at ${new Date(payload.nextRepeatDueAt).toLocaleTimeString()}.`;
         return;
       }
@@ -597,6 +646,7 @@
         const plannedRun = persisted.descriptor;
         browserRun = plannedRun;
         browserRunState = 'resumable';
+        scheduleRepeatWait(null);
         showAlternateLauncher = false;
         runMessage = 'Study session planned. Opening the first Review…';
         await openRun(plannedRun);
@@ -695,8 +745,8 @@
         <p class="muted">Session size: {summary.allAvailable ? 'All available' : summary.total ?? summary.target} Cases.</p>
       </div>
       <div class="run-actions">
-        <button class="button primary" type="button" onclick={continueRun} disabled={opening || planning || Boolean(data.activeReview)}>
-          {opening ? 'Opening…' : 'Continue session →'}
+        <button class="button primary" type="button" onclick={continueRun} disabled={opening || planning || Boolean(data.activeReview) || (nextRepeatDueAt != null && nextRepeatDueAt > Date.now())}>
+          {opening ? 'Opening…' : nextRepeatDueAt != null && nextRepeatDueAt > Date.now() ? `Next repeat at ${new Date(nextRepeatDueAt).toLocaleTimeString()}` : 'Continue session →'}
         </button>
         <button class="button" type="button" onclick={openAlternateLauncher} disabled={opening || planning || showAlternateLauncher}>
           Start a different session

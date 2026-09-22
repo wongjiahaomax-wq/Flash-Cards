@@ -233,6 +233,12 @@
     });
   }
 
+  /** @param {Event} event */
+  function handleInvalid(event) {
+    event.preventDefault();
+    startEditing();
+  }
+
   /** @param {FocusEvent} event */
   function handleEditorFocusout(event) {
     const next = event.relatedTarget;
@@ -256,6 +262,7 @@
 
   /** @param {KeyboardEvent} event */
   function handlePreviewKeydown(event) {
+    if (event.target instanceof Element && event.target.closest('a')) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     startEditing();
@@ -294,6 +301,7 @@
         {required}
         {placeholder}
         {disabled}
+        oninvalid={handleInvalid}
         use:textareaAction
         value={draftValue}
         onbeforeinput={handleBeforeInput}
