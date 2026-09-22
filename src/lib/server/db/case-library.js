@@ -244,7 +244,6 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     .select({
       id: cases.id,
       title: cases.title,
-      vignetteMd: cases.vignetteMd,
       isActive: cases.isActive,
       createdAt: cases.createdAt,
       updatedAt: cases.updatedAt
