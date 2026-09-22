@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { runLocalBuild } from '../scripts/build-local.mjs';
+import { e2eReporters } from '../playwright.config.js';
 import { runLocalSvelteCheck } from '../scripts/check-local.mjs';
 import localTestReporter, { boundedPreview } from '../scripts/local-test-reporter.mjs';
 import { hasExplicitMaintainedNodeTarget, runNodeTests } from '../scripts/test-runner.mjs';
@@ -524,7 +525,7 @@ test('local build forwards appended Vite arguments through the quiet presentatio
   assert.equal(status, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].executable, 'npm');
-  assert.deepEqual(calls[0].args, ['run', 'build:quiet', '--', '--mode', 'staging']);
+  assert.deepEqual(calls[0].args, ['run', '--silent', 'build:quiet', '--', '--mode', 'staging']);
 });
 
 test('local build failure repro preserves appended Vite arguments', () => {
@@ -535,4 +536,21 @@ test('local build failure repro preserves appended Vite arguments', () => {
   }));
   assert.equal(status, 4);
   assert.match(output, /Verbose reproduction: npm run build:verbose -- --mode staging/);
+});
+
+test('local build retains warning diagnostics and a concise success summary', () => {
+  const { value: status, output } = captureConsole(() => runLocalBuild({
+    argv: [],
+    env: TEST_ENV,
+    spawn: /** @type {any} */ (() => ({ status: 0, stdout: '', stderr: 'Warning: inspect this build warning' })),
+  }));
+  assert.equal(status, 0);
+  assert.match(output, /Warning: inspect this build warning/);
+  assert.match(output, /✓ Build — passed/);
+});
+
+test('local E2E adds compact terminal reporting without changing HTML artifacts or CI presentation', () => {
+  const html = ['html', { outputFolder: '.playwright/report', open: 'never' }];
+  assert.deepEqual(e2eReporters({}), [['dot'], html]);
+  assert.deepEqual(e2eReporters({ CI: 'true' }), [html]);
 });
