@@ -4,6 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 // concise terminal progress/failure details rather than per-test status lines.
 /** @param {{ CI?: string }} [env] @returns {import('@playwright/test').PlaywrightTestConfig['reporter']} */
 export function e2eReporters(env = process.env) {
+  /** @type {['html', { outputFolder: string, open: 'never' }]} */
   const html = ['html', { outputFolder: '.playwright/report', open: 'never' }];
   return env.CI ? [html] : [['dot'], html];
 }
