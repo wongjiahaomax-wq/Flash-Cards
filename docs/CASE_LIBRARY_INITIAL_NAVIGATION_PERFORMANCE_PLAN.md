@@ -1,48 +1,23 @@
-# Admin Case Library — initial navigation and read performance
+# Admin Case Library — filter restoration and small load optimization
 
-Status: implementation plan for this Draft PR. No application-code change is implied by adding this document.
+Status: implementation plan for Draft PR #198. No application code has been changed yet.
 
-## Observed behavior and baseline
+## Problem and evidence
 
-The 22 September 2026 browser HAR records opening the Cases page from Admin with a previously remembered Unassigned System filter:
+The 22 September 2026 HAR shows a normal Admin → Cases visit first requesting unfiltered `/admin/cases/__data.json` (2.47 s; 60 of 313 active Cases), followed by client-side saved-filter restoration and a second request for `/admin/cases?system=__unassigned__` (2.70 s; 18 Cases). The incorrect first list briefly appears. The existing `admin-case-library-read` timing was ~1.1 s for each request. One HAR cannot identify which SQL statement is slow or establish representative latency.
 
-- First request: `GET /admin/cases/__data.json?x-sveltekit-invalidated=001`, **without a System filter**; 2,472 ms total, 1,090 ms `admin-case-library-read`; response size ~81 KB. This unfiltered page contains 60 Cases (page 1) out of 313 active Cases.
-- After the unfiltered content appears, client `onMount` reads persisted Case Library state and calls `window.location.replace('/admin/cases?system=__unassigned__')`.
-- Second request: `GET /admin/cases?system=__unassigned__`, 2,702 ms total, 1,074 ms `admin-case-library-read`; response size ~193 KB and 18 filtered Cases.
-- No failed requests or meaningful uncached JS/CSS transfer in the capture.
+Current cause: the Admin sidebar links to bare `/admin/cases`; `src/routes/admin/cases/+page.svelte` restores localStorage state in `onMount`, after the first page data has loaded.
 
-These are timings for one recorded navigation, not a general latency benchmark. The HAR proves the duplicate navigation and reports server read timing; it does not isolate individual SQL statements or client paint timestamps.
+## Implement in this same PR
 
-Relevant current implementation: `src/routes/admin/+layout.svelte` has a bare Cases sidebar link; `src/routes/admin/cases/+page.svelte` restores saved state in `onMount` after the first page is rendered; `src/lib/admin-case-library-state.ts` contains validated storage/URL helpers; the route loader and `getCaseLibraryPage()` perform the bounded database read.
+1. **Fix the normal Admin sidebar navigation.** Before navigating to Cases from the hydrated Admin UI, resolve its destination from the existing validated saved-state/URL helpers so the first Cases request already carries the remembered filter. The link must reflect the latest state within the same tab, not just what was stored when the Admin layout mounted. Prefer a small change to existing components/helpers; no new persistence, global navigation interception, or server/client synchronization architecture.
 
-## Tranche A — remove the unfiltered flash and redundant normal navigation
+   Preserve explicit filtered/default URLs, Clear, Active/Inactive, sorting, pagination and editor return context. The existing bare-URL `onMount` fallback may remain for direct hard loads: the server cannot read localStorage, so eliminating its initial unfiltered HTTP request is **not** a requirement for this PR. Do not add SSR masking, loading gates, cookies, or server-side storage solely for that path. If a direct bare URL still briefly shows unfiltered rows, document it as a remaining limitation rather than expanding this fix.
 
-Goal: the normal hydrated Admin sidebar Cases link resolves the last saved Case Library URL **before** fetching or displaying the Cases page. Reuse the existing stored-state and canonical URL helpers; do not introduce another persistence mechanism.
+2. **Trim the list-only query.** Verify that `vignetteMd` is unused by the Case Library list and its consumers, then remove it only from `getCaseLibraryPage()`'s row selection. Do not change Case Editor or learner data.
 
-- Preserve the current rule: explicit Case Library URL parameters win over stored state, including explicit default values; Clear intentionally removes stored state and shows all Cases; action failures must not trigger restoration; pagination, sorting, lifecycle, editor-return query, and Back navigation must retain their behavior.
-- Keep the sidebar target current when working state changes within the same browser tab; do not rely only on a `storage` event (which does not fire in the writing tab). Avoid preloading the unfiltered target while the saved filtered target is known.
-- For a direct hard navigation to bare `/admin/cases`, the server cannot read browser-only localStorage. Preserve the existing restoration behavior, but **do not render an incorrect unfiltered Case list while restoration is pending**. Do not claim that the initial unfiltered HTTP request can always be avoided on a hard navigation without changing the persistence boundary.
-- Avoid blanking or hiding correctly filtered explicit URLs, including the case where browser storage is absent, disabled, malformed, or stale.
+3. **Check outcome; no speculative SQL changes.** On the same representative saved-filter navigation, confirm that only the filtered Cases request occurs, no incorrect rows flash, and the list still functions. Compare the existing `admin-case-library-read` timing and response size if readily available. The remaining ~1.1 s read is a separate possible follow-up; **do not** add query-level instrumentation, rewrite recursive SQL, introduce caching, migrations, or other performance architecture in this PR.
 
-Executable acceptance: a real-browser test seeds saved `system=__unassigned__`, enters from a different Admin route, and verifies that no unfiltered Case rows become visible and no unfiltered Cases data request is sent during the ordinary hydrated sidebar navigation. Test direct bare entry has no incorrect list flash; explicit filtered URL and Clear each take precedence and show the intended data. Keep the fixture focused; no production mutation.
+## Focused acceptance and handoff
 
-## Tranche B — reduce unnecessary list payload
-
-- `getCaseLibraryPage()` currently selects `cases.vignetteMd` into the Case Library rows, but the Cases list component does not display or use that field. Remove it **from this list-specific select only**, after checking that no dependent list consumer/test needs it. Do not remove the field from the Case Editor or study path.
-- Record before/after transfer sizes for the same filtered and unfiltered fixture where feasible. Do not claim speed gains from bytes alone without measuring.
-
-Executable acceptance: existing Case Library filtering, pagination, inline edits, dates, selection, and editor navigation remain unchanged; a focused test asserts the Case Library row payload excludes `vignetteMd` if that is not part of the list contract.
-
-## Tranche C — profile remaining filtered-read latency; optimize only if supported
-
-After A and B, measure the **single** filtered navigation under comparable conditions. The HAR reports ~1.07–1.09 s `admin-case-library-read`, but does not reveal which operation dominates.
-
-- Start from the existing server-timing signal and the current route/database implementation. Measure taxonomy read, filtered count, paginated Case retrieval, page enrichment, and tag options only to the extent needed to locate a material delay. Keep instrumentation bounded and avoid logging personal content, credentials, or unnecessarily verbose diagnostics.
-- The Unassigned System predicate currently repeats a recursive ancestry lookup in the count and row queries. If profiling identifies it as material, propose/implement the smallest **semantics-preserving** query simplification supported by the current schema; verify nested Topics, assigned/unassigned Systems, active/inactive taxonomy, totals, pagination and sort behavior against the original.
-- Do not introduce a new cache, data-model denormalization, migration, background processing, or broad query refactor without a demonstrated bottleneck and concrete benefit. If the remaining duration is mainly outside the database read, report that instead of optimizing SQL speculatively.
-
-Executable acceptance: compare representative before/after single-navigation timings and request/response sizes, including the original Unassigned filter, and document any remaining server-vs-network latency without promising a specific numeric target.
-
-## Execution/handoff
-
-Continue **this same Draft PR** in tranches; keep changes scoped to Admin Cases navigation/read performance. Inspect the actual current branch and repository-owned progressive-retrieval guidance before edits. Use focused tests during iteration and repository-required handoff validation, including real-browser navigation/network acceptance for Tranche A. Report actual measured results and exact-head CI. Do not merge, deploy, or mark Ready for Review.
+Use one focused real-browser regression (or extend an existing suitable browser test) for Admin sidebar → remembered Unassigned filter: assert the first Cases data/navigation request is filtered and the unfiltered list is never shown. Smoke-check Clear and an explicit filtered URL. Use focused existing Case Library tests for list-row compatibility, then repository-required handoff validation. Report actual results, remaining direct-hard-load limitation and exact-head CI. Preserve Draft state; do not merge or deploy.
