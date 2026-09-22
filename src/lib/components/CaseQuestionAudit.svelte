@@ -1,5 +1,6 @@
 <script>
   import AccessibleInfo from './AccessibleInfo.svelte';
+  import MarkdownContent from '$lib/components/MarkdownContent.svelte';
 
   /** @typedef {{ id?: string, assetId?: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null }} PreviewImage */
   /** @typedef {{ key: string, number: number, promptMd: string, answerMd: string, sourceType: string, sourceLabel: string, sourceName: string, editTarget?: string | null, preview?: { type: 'image', image: PreviewImage, subtitle: string } | { type: 'set', images: PreviewImage[], subtitle: string } | null }} AuditRow */
@@ -33,17 +34,17 @@
   {#if rows.length === 0}
     <p class="empty">No active Case-participating questions are currently available.</p>
   {:else}
-    <div class="audit-table-wrap">
-      <table>
-        <thead><tr><th>#</th><th>Prompt</th><th>Source / scope</th><th>Answer</th><th><span class="sr-only">Actions</span></th></tr></thead>
-        <tbody>
-          {#each rows as row (row.key)}
-            <tr>
-              <td class="number" data-label="#">Q{row.number}</td>
-              <td data-label="Prompt">{row.promptMd}</td>
-              <td data-label="Source / scope">
+    <div class="audit-list">
+      {#each rows as row (row.key)}
+        <article class="audit-card">
+          <div class="audit-card-heading">
+            <div class="question-identity">
+              <span class="number">Q{row.number}</span>
+              <div>
+                <strong>Question {row.number}</strong>
                 <div class="source-cell">
-                  <span><strong>{row.sourceLabel}</strong><small>{row.sourceName}</small></span>
+                  <span class="source-label">{row.sourceLabel}</span>
+                  <span class="source-name">{row.sourceName}</span>
                   {#if row.preview}
                     {@const preview = row.preview}
                     <span class="source-preview" class:pinned={pinnedKey === row.key}>
@@ -79,13 +80,23 @@
                     </span>
                   {/if}
                 </div>
-              </td>
-              <td data-label="Answer">{row.answerMd}</td>
-              <td class="actions-cell">{#if row.editTarget}<a href={`#${row.editTarget}`}>Edit</a>{/if}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+              </div>
+            </div>
+            {#if row.editTarget}<a class="edit-link" href={`#${row.editTarget}`}>Edit</a>{/if}
+          </div>
+
+          <div class="audit-content">
+            <section class="audit-field" aria-labelledby={`audit-prompt-${row.key}`}>
+              <h3 id={`audit-prompt-${row.key}`}>Prompt</h3>
+              <MarkdownContent source={row.promptMd} />
+            </section>
+            <section class="audit-field answer-field" aria-labelledby={`audit-answer-${row.key}`}>
+              <h3 id={`audit-answer-${row.key}`}>Answer</h3>
+              <MarkdownContent source={row.answerMd} />
+            </section>
+          </div>
+        </article>
+      {/each}
     </div>
   {/if}
 </section>
@@ -97,16 +108,22 @@
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
   .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .empty { margin: 0; color: #667085; }
-  .audit-table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; color: #344054; font-size: 0.84rem; line-height: 1.45; }
-  th { padding: 0.55rem 0.6rem; border-bottom: 1px solid #d0d5dd; color: #667085; font-size: 0.72rem; letter-spacing: 0.035em; text-align: left; text-transform: uppercase; }
-  td { min-width: 120px; padding: 0.7rem 0.6rem; border-bottom: 1px solid #eaecf0; vertical-align: top; overflow-wrap: anywhere; }
-  tbody tr:last-child td { border-bottom: 0; }
-  .number { min-width: 2.5rem; width: 2.5rem; color: #667085; font-weight: 700; }
-  .source-cell { display: flex; align-items: start; gap: 0.4rem; min-width: 150px; }
-  .source-cell > span:first-child { display: grid; gap: 0.1rem; }
-  .source-cell strong { color: #475467; font-size: 0.7rem; letter-spacing: 0.035em; }
-  .source-cell small { color: #667085; font-size: 0.76rem; }
+  .audit-list { display: grid; gap: 0.75rem; }
+  .audit-card { display: grid; gap: 0.85rem; padding: 0.9rem; border: 1px solid #dfe5ee; border-radius: 9px; background: #fff; }
+  .audit-card-heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+  .question-identity { display: flex; align-items: start; gap: 0.65rem; min-width: 0; }
+  .question-identity > div { min-width: 0; }
+  .number { display: inline-grid; flex: 0 0 auto; width: 2rem; height: 2rem; place-items: center; border-radius: 999px; background: #172033; color: #fff; font-size: 0.78rem; font-weight: 750; }
+  .source-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; margin-top: 0.25rem; }
+  .source-label { color: #475467; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.035em; }
+  .source-name { color: #667085; font-size: 0.78rem; }
+  .edit-link { flex: 0 0 auto; color: #344054; font-size: 0.8rem; font-weight: 650; }
+  .audit-content { display: grid; grid-template-columns: minmax(13rem, 0.38fr) minmax(0, 1fr); gap: 1rem; padding-top: 0.85rem; border-top: 1px solid #eaecf0; }
+  .audit-field { min-width: 0; }
+  .audit-field h3 { margin: 0 0 0.45rem; color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+  .audit-field :global(.markdown-content) { color: #344054; font-size: 0.86rem; }
+  .audit-field :global(.markdown-content p), .audit-field :global(.markdown-content ul), .audit-field :global(.markdown-content ol) { margin-top: 0.35rem; margin-bottom: 0.55rem; }
+  .answer-field { padding-left: 1rem; border-left: 1px solid #eaecf0; }
   .source-preview { position: relative; flex: 0 0 auto; }
   .preview-trigger { width: 1.55rem; height: 1.55rem; padding: 0; border: 1px solid #d0d5dd; border-radius: 5px; background: #fff; color: #475467; cursor: pointer; font: inherit; }
   .preview-popover { position: absolute; z-index: 30; top: calc(100% + 0.35rem); left: 0; display: grid; gap: 0.4rem; width: min(260px, calc(100vw - 2rem)); padding: 0.55rem; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; box-shadow: 0 10px 30px rgb(16 24 40 / 18%); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(-0.2rem); transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease; }
@@ -119,22 +136,12 @@
   .set-strip img { width: 100%; height: 100%; object-fit: contain; }
   .close-preview { justify-self: end; padding: 0.25rem 0.4rem; border: 0; background: transparent; color: #475467; cursor: pointer; font: inherit; font-size: 0.72rem; }
   .missing { display: grid; place-items: center; min-height: 90px; background: #eef2f6; color: #667085; font-size: 0.78rem; }
-  .actions-cell { min-width: 3rem; width: 3rem; }
-  .actions-cell a { color: #344054; font-size: 0.78rem; font-weight: 650; }
   button:focus-visible, a:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
-  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   @media (max-width: 720px) {
     .audit { padding: 0.85rem; }
     .audit-heading { flex-direction: column; }
-    .audit-table-wrap { overflow: visible; }
-    table, thead, tbody, tr, th, td { display: block; }
-    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
-    tr { display: grid; gap: 0.5rem; padding: 0.8rem 0; border-bottom: 1px solid #d0d5dd; }
-    tbody tr:last-child { border-bottom: 0; }
-    td { display: grid; grid-template-columns: 5.25rem minmax(0, 1fr); gap: 0.5rem; min-width: 0; padding: 0; border: 0; }
-    td::before { content: attr(data-label); color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.025em; text-transform: uppercase; }
-    .number, .actions-cell { width: auto; min-width: 0; }
-    .actions-cell::before { content: 'Action'; }
-    .source-cell { min-width: 0; }
+    .audit-card-heading { gap: 0.65rem; }
+    .audit-content { grid-template-columns: 1fr; gap: 0.8rem; }
+    .answer-field { padding-top: 0.8rem; padding-left: 0; border-top: 1px solid #eaecf0; border-left: 0; }
   }
 </style>

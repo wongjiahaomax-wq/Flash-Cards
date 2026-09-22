@@ -5,6 +5,7 @@
   import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { canReorderCaseQuestion, cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
+  import MarkdownField from '$lib/components/MarkdownField.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
   /** @typedef {{ assetId: string, isActive: boolean, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null }} CaseAsset */
@@ -318,8 +319,8 @@
     <form method="POST" action={previewMode ? '?/saveQuestion' : `/admin/cases/${selectedCase.case.id}/question-scope`} class="form-grid question-authoring">
       <input type="hidden" name="case_id" value={selectedCase.case.id} />
       <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
-      <label class="new-question-prompt">Question prompt<textarea name="prompt_md" rows="3" maxlength="2000" required placeholder="e.g. What is the likely cause in this patient?"></textarea></label>
-      <label class="new-question-answer">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3" maxlength="5000" required placeholder="The answer shown after reveal."></textarea></label>
+      <div class="new-question-prompt"><MarkdownField label="Question prompt" id="new-case-question-prompt" name="prompt_md" rows={3} maxlength={2000} required placeholder="e.g. What is the likely cause in this patient?" /></div>
+      <div class="new-question-answer"><MarkdownField label="Answer" id="new-case-question-answer" name="answer_md" rows={3} maxlength={5000} required placeholder="The answer shown after reveal." textareaAction={autoGrowAnswer} /></div>
       {#if !previewMode}
         <fieldset class="scope-choice wide"><legend>Applies to:</legend><label><input type="radio" name="scope" value="case" bind:group={newQuestionScope} /> This whole Case</label><label><input type="radio" name="scope" value="stimulus" bind:group={newQuestionScope} /> A specific image / stimulus</label></fieldset>
         {#if newQuestionScope === 'case'}
@@ -383,8 +384,8 @@
           <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
           <input type="hidden" name="case_question_id" value={question.id} />
           <input type="hidden" name="original_prompt_id" value={questionDraft.authoritativeId} />
-          <label class="question-prompt-field">Prompt<textarea name="prompt_md" value={questionDraft.draft.promptMd} oninput={(event) => updateQuestionDraft(questionDraft, 'promptMd', event.currentTarget.value)} rows="3" maxlength="2000" required></textarea></label>
-          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" value={questionDraft.draft.answerMd} oninput={(event) => updateQuestionDraft(questionDraft, 'answerMd', event.currentTarget.value)} rows="3" maxlength="5000" required></textarea></label>
+          <div class="question-prompt-field"><MarkdownField label="Prompt" id={`question-prompt-${question.id}`} name="prompt_md" value={questionDraft.draft.promptMd} rows={3} maxlength={2000} required onvaluechange={(value) => updateQuestionDraft(questionDraft, 'promptMd', value)} /></div>
+          <div class="question-answer-field"><MarkdownField label="Answer" id={`question-answer-${question.id}`} name="answer_md" value={questionDraft.draft.answerMd} rows={3} maxlength={5000} required textareaAction={autoGrowAnswer} onvaluechange={(value) => updateQuestionDraft(questionDraft, 'answerMd', value)} /></div>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={questionDraft.draft.reusableForTopic} onchange={(event) => updateQuestionDraft(questionDraft, 'reusableForTopic', event.currentTarget.checked)} /> Share this question with the Topic</label>
             <span class="save-state" class:error={questionDraft.saveState === 'error' && questionDirty(questionDraft)}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDirty(questionDraft) && questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>

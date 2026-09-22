@@ -1,5 +1,6 @@
 <script>
   import AccessibleInfo from './AccessibleInfo.svelte';
+  import MarkdownField from '$lib/components/MarkdownField.svelte';
 
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string }} CaseSpecificQuestion */
   /** @typedef {{ id: string, questionPromptId?: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableQuestion */
@@ -90,8 +91,8 @@
               <input type="hidden" name="case_id" value={caseId} />
               <input type="hidden" name="option_id" value={optionId} />
               <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
-              <label>Prompt<textarea use:autoGrowImageField name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea></label>
-              <label>Answer<textarea use:autoGrowImageField name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
+              <MarkdownField label="Prompt" id={`image-prompt-${question.questionPromptId}`} name="prompt_md" value={question.promptMd} rows={2} maxlength={2000} required textareaAction={autoGrowImageField} />
+              <MarkdownField label="Answer" id={`image-answer-${question.questionPromptId}`} name="answer_md" value={question.answerMd} rows={3} maxlength={10000} required textareaAction={autoGrowImageField} />
               <div class="row-actions"><button class="button small" type="submit">Save</button></div>
             </form>
           {/each}
@@ -115,7 +116,7 @@
                 <input type="hidden" name="case_id" value={caseId} />
                 <input type="hidden" name="asset_question_id" value={question.id} />
                 <div class="read-field"><span>Prompt</span><strong>{question.promptMd}</strong><a href={`/admin/images/${asset.assetId}#reusable-questions`}>Edit shared wording in Asset library</a></div>
-                <label>Answer<textarea use:autoGrowImageField name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
+                <MarkdownField label="Answer" id={`reusable-image-answer-${question.id}`} name="answer_md" value={question.answerMd} rows={3} maxlength={10000} required textareaAction={autoGrowImageField} />
                 <div class="row-actions"><button class="button small" type="submit">Save canonical answer</button></div>
               </form>
             {/if}

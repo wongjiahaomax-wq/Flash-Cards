@@ -1,5 +1,6 @@
 <script>
   import AdminStudyPreviewCase from '$lib/components/AdminStudyPreviewCase.svelte';
+  import MarkdownContent from '$lib/components/MarkdownContent.svelte';
 
   let { data } = $props();
 </script>
@@ -58,7 +59,7 @@
     <section class="case-preview">
       <div class="case-meta"><span>{data.contentMode === 'expanded' ? 'Expanded Learning' : 'Original questions'}</span><span>{data.preview.snapshot.bytes.toLocaleString('en-US')} frozen-preview bytes</span></div>
       <h2>{data.preview.snapshot.case.title}</h2>
-      {#if data.preview.snapshot.case.vignetteMd}<p class="vignette">{data.preview.snapshot.case.vignetteMd}</p>{/if}
+      {#if data.preview.snapshot.case.vignetteMd}<MarkdownContent class="vignette" source={data.preview.snapshot.case.vignetteMd} />{/if}
 
       {#if data.preview.snapshot.assets.length}
         <section class="preview-section">
@@ -67,7 +68,7 @@
             {#each data.preview.snapshot.assets as asset}
               <figure>
                 <div class="asset-stage"><img src={asset.imageUrl} alt={asset.altTextSnapshot ?? asset.captionSnapshotMd ?? 'Teaching image'} /></div>
-                {#if asset.captionSnapshotMd}<figcaption>{asset.captionSnapshotMd}</figcaption>{/if}
+                {#if asset.captionSnapshotMd}<figcaption><MarkdownContent source={asset.captionSnapshotMd} /></figcaption>{/if}
               </figure>
             {/each}
           </div>
@@ -80,7 +81,7 @@
           {#each data.preview.snapshot.questions as question, index}
             <article class="question-card">
               <span class="question-number">{index + 1}</span>
-              <div><h4>{question.promptSnapshotMd}</h4><p class="answer-label">Answer</p><p>{question.answerSnapshotMd}</p></div>
+              <div><MarkdownContent class="question-prompt" source={question.promptSnapshotMd} /><p class="answer-label">Answer</p><MarkdownContent source={question.answerSnapshotMd} /></div>
             </article>
           {/each}
         </div>
@@ -108,7 +109,7 @@
   .case-preview h2,.preview-section h3 { margin:0; }
   .case-meta { display:flex; flex-wrap:wrap; gap:.5rem; color:#667085; font-size:.85rem; font-weight:600; }
   .case-meta span { padding:.25rem .5rem; border-radius:999px; background:#eef2f6; }
-  .vignette { margin:0; max-width:760px; line-height:1.65; color:#475467; }
+  :global(.vignette) { margin:0; max-width:760px; line-height:1.65; color:#475467; }
   .preview-section { display:grid; gap:.85rem; }
   .asset-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .asset-grid.single { grid-template-columns:1fr; }
@@ -119,8 +120,8 @@
   .question-list { display:grid; gap:.75rem; }
   .question-card { display:grid; grid-template-columns:auto 1fr; gap:.85rem; padding:1rem; border:1px solid #e3e8ef; border-radius:12px; }
   .question-number { display:grid; place-items:center; width:2rem; height:2rem; border-radius:999px; background:#172033; color:#fff; font-weight:700; }
-  .question-card h4 { margin:.25rem 0 .8rem; }
   .question-card p { margin:.25rem 0; line-height:1.55; }
+  :global(.question-prompt) { font-weight:700; }
   .answer-label { color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
   .empty-state { margin:0; padding:1rem; border-radius:12px; background:#f8fafc; color:#475467; }
   @media (max-width:700px) { .control-grid,.asset-grid { grid-template-columns:1fr; } .case-control { grid-column:auto; } }
