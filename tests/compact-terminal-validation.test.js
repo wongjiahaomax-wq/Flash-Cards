@@ -551,6 +551,6 @@ test('local build retains warning diagnostics and a concise success summary', ()
 
 test('local E2E adds compact terminal reporting without changing HTML artifacts or CI presentation', () => {
   const html = ['html', { outputFolder: '.playwright/report', open: 'never' }];
-  assert.deepEqual(e2eReporters({}), [['dot'], html]);
-  assert.deepEqual(e2eReporters({ CI: 'true' }), [html]);
+  assert.deepEqual(e2eReporters(false), [['dot'], html]);
+  assert.deepEqual(e2eReporters(true), [html]);
 });

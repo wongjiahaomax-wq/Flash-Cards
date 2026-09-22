@@ -2,11 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Keep Playwright's HTML artifacts for both local runs and CI. Locally, emit
 // concise terminal progress/failure details rather than per-test status lines.
-/** @param {{ CI?: string }} [env] @returns {import('@playwright/test').PlaywrightTestConfig['reporter']} */
-export function e2eReporters(env = process.env) {
+/** @param {boolean} [isCi] @returns {import('@playwright/test').PlaywrightTestConfig['reporter']} */
+export function e2eReporters(isCi = Boolean(process.env.CI)) {
   /** @type {['html', { outputFolder: string, open: 'never' }]} */
   const html = ['html', { outputFolder: '.playwright/report', open: 'never' }];
-  return env.CI ? [html] : [['dot'], html];
+  return isCi ? [html] : [['dot'], html];
 }
 
 export default defineConfig({
