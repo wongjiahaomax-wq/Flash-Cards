@@ -35,6 +35,8 @@ const expiredVerificationId = '00000000-0000-4000-8000-000000000004';
 const previewVerificationId = '00000000-0000-4000-8000-000000000005';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
 const TRANSIENT_FETCH_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET']);
+const verbose = process.argv.slice(2).includes('--verbose');
+const WRANGLER_FAILURE_OUTPUT_LIMIT = 8000;
 
 /**
  * Wrangler can briefly close an in-flight loopback connection while its local
@@ -71,7 +73,26 @@ function runWrangler(args, { capture = false } = {}) {
       stdio: ['inherit', 'pipe', 'inherit']
     });
   }
-  execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
+  // Routine Wrangler progress is noisy in local validation; stderr remains
+  // visible so warnings and errors cannot be lost.
+  let output;
+  try {
+    output = execFileSync(process.execPath, [wranglerCli, ...args], {
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'inherit']
+    });
+  } catch (error) {
+    const stdout = error && typeof error === 'object' && 'stdout' in error
+      ? String(error.stdout ?? '').trim()
+      : '';
+    if (stdout) {
+      const omitted = Math.max(0, stdout.length - WRANGLER_FAILURE_OUTPUT_LIMIT);
+      console.error(stdout.slice(0, WRANGLER_FAILURE_OUTPUT_LIMIT));
+      if (omitted) console.error(`… ${omitted} characters omitted; rerun with --verbose for additional diagnostics.`);
+    }
+    throw error;
+  }
+  if (verbose && output) process.stdout.write(output);
   return '';
 }
 

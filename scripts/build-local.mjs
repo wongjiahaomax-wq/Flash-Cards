@@ -33,7 +33,7 @@ export function runLocalBuild(options = {}) {
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const spawn = options.spawn ?? spawnSync;
-  const invocation = npmInvocation(['run', 'build:quiet', ...(argv.length ? ['--', ...argv] : [])], env);
+  const invocation = npmInvocation(['run', '--silent', 'build:quiet', ...(argv.length ? ['--', ...argv] : [])], env);
   const result = spawn(invocation.executable, invocation.args, {
     cwd: process.cwd(),
     stdio: ['inherit', 'pipe', 'pipe'],

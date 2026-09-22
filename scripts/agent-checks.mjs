@@ -12,7 +12,8 @@ import { resolveDiffBase } from './validation-git.mjs';
 export function parseAgentChecksArgs(argv) {
   let base = null;
   let files = null;
-  let compact = false;
+  let compact = true;
+  let presentation = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--base') {
@@ -22,8 +23,12 @@ export function parseAgentChecksArgs(argv) {
       const value = argv[index + 1] ?? '';
       files = value.split(',').map((file) => file.trim()).filter(Boolean);
       index += 1;
-    } else if (arg === '--compact') {
-      compact = true;
+    } else if (arg === '--compact' || arg === '--verbose') {
+      if (presentation && presentation !== arg) {
+        throw new Error('Contradictory agent:checks presentation flags: --compact and --verbose.');
+      }
+      presentation = arg;
+      compact = arg === '--compact';
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }

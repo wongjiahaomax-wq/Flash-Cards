@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
 import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import { parseAgentChecksArgs, printAgentChecksReport, printCompactAgentChecksReport } from '../scripts/agent-checks.mjs';
-import { CI_TEST_MAX_BUFFER_BYTES, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
-import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
+import { CI_TEST_MAX_BUFFER_BYTES, ciCommandArgs, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
+import { localValidationCommandArgs, resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
 import { CI_SPECIALIZED_CHECK_IDS, VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
 import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
 
@@ -171,6 +171,21 @@ test('validation stops and propagates the first failing exit code', () => {
   assert.equal(calls, 2);
 });
 
+test('auth smoke stays compact locally but explicit verbose validation and CI preserve Wrangler output', () => {
+  assert.deepEqual(
+    localValidationCommandArgs('authSmoke', ['scripts/local-auth-smoke.mjs'], false),
+    ['scripts/local-auth-smoke.mjs'],
+  );
+  assert.deepEqual(
+    localValidationCommandArgs('authSmoke', ['scripts/local-auth-smoke.mjs'], true),
+    ['scripts/local-auth-smoke.mjs', '--verbose'],
+  );
+  assert.deepEqual(
+    ciCommandArgs('authSmoke', ['scripts/local-auth-smoke.mjs']),
+    ['scripts/local-auth-smoke.mjs', '--verbose'],
+  );
+});
+
 test('CI Node-test diagnostics preserve useful GitHub annotations without the default small output buffer', () => {
   const output = [
     'TAP version 13',
@@ -204,8 +219,13 @@ test('CI argument parsing preserves diff overrides, defaults omitted mode to ful
   assert.throws(() => parseCiArgs(['--mode', '']), /CI validation mode must be non-empty/);
 });
 
-test('agent:checks CLI accepts compact mode with base/files in sensible option order', () => {
-  assert.deepEqual(parseAgentChecksArgs(['--base', 'release']), { base: 'release', files: null, compact: false });
+test('agent:checks CLI defaults to compact and accepts explicit verbose or compact modes', () => {
+  assert.deepEqual(parseAgentChecksArgs(['--base', 'release']), { base: 'release', files: null, compact: true });
+  assert.deepEqual(parseAgentChecksArgs(['--verbose', '--base', 'release']), {
+    base: 'release',
+    files: null,
+    compact: false,
+  });
   assert.deepEqual(parseAgentChecksArgs(['--compact', '--base', 'release']), {
     base: 'release',
     files: null,
@@ -232,6 +252,7 @@ test('agent:checks CLI preserves malformed and unknown argument errors', () => {
   assert.throws(() => parseAgentChecksArgs(['--base']), /--base requires a Git ref/);
   assert.throws(() => parseAgentChecksArgs(['--files', '']), /--files requires a comma-separated path list/);
   assert.throws(() => parseAgentChecksArgs(['--quiet']), /Unknown argument: --quiet/);
+  assert.throws(() => parseAgentChecksArgs(['--compact', '--verbose']), /Contradictory agent:checks presentation flags/);
 });
 
 test('agent:checks verbose presentation retains the existing observable sections and order', () => {
