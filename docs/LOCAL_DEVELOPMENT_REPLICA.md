@@ -107,7 +107,24 @@ Use:
 npm run local:refresh
 ```
 
-only when the local Production-derived teaching content needs updating.
+only when the local Production-derived teaching content needs updating. The D1
+refresh keeps its existing read-Production/write-local reset behavior. The R2
+step is incremental: it inventories the persistent local `MEDIA` bucket and
+downloads only current Production Asset `storage_key` values that are absent
+locally. Existing keys are considered present by key identity; bytes are not
+hashed or compared, so a corrupted local object requires the explicit repair
+form:
+
+```sh
+npm run local:refresh:r2 -- --force
+```
+
+Forced R2 refresh bypasses local inventory and re-copies every current Asset
+key through the existing Production-read/local-write path. It does not delete
+unrelated local objects, imported media, Preview/test objects, or orphaned
+keys. The command reports forced-mode existing-key count as `not checked`.
+Inventory failures in ordinary mode stop before any Production GET or local
+PUT; forced mode does not depend on inventory.
 
 Available narrower refresh commands include the repository-owned D1/R2 variants defined in `package.json`.
 
