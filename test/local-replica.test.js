@@ -81,6 +81,158 @@ test('R2 command builders enforce remote GET and local PUT directions', () => {
   assert.equal(put.includes('--remote'), false);
 });
 
+test('local R2 refresh skips inventory-present keys and copies only missing keys', async () => {
+  const rows = [
+    { storage_key: 'teaching/present.png', mime_type: 'image/png' },
+    { storage_key: 'teaching/missing.png', mime_type: 'image/png' }
+  ];
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-incremental-'));
+  const commands = /** @type {Array<{ kind: string, key: string }>} */ ([]);
+
+  try {
+    const result = await refreshR2(rows, {
+      stagingDirectory,
+      listLocalKeys: async () => new Set(['teaching/present.png']),
+      execute: async (args, context) => {
+        commands.push({ kind: context.kind, key: context.key });
+        if (context.kind === 'remote-get') writeFileSync(context.file, Buffer.from(context.key));
+        return { status: 0 };
+      }
+    });
+
+    assert.deepEqual(result, {
+      total: 2,
+      expected: 2,
+      alreadyPresent: 1,
+      copied: 1,
+      failed: 0,
+      failures: []
+    });
+    assert.deepEqual(commands, [
+      { kind: 'remote-get', key: 'teaching/missing.png' },
+      { kind: 'local-put', key: 'teaching/missing.png' }
+    ]);
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
+test('local R2 refresh succeeds when every current key is already present', async () => {
+  const rows = [
+    { storage_key: 'teaching/present-a.png', mime_type: 'image/png' },
+    { storage_key: 'teaching/present-b.png', mime_type: 'image/png' }
+  ];
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-all-present-'));
+  let transfers = 0;
+
+  try {
+    const result = await refreshR2(rows, {
+      stagingDirectory,
+      listLocalKeys: async () => new Set(rows.map((row) => row.storage_key)),
+      execute: async () => {
+        transfers += 1;
+        throw new Error('all-present refresh must not transfer');
+      }
+    });
+
+    assert.equal(result.total, rows.length);
+    assert.equal(result.alreadyPresent, rows.length);
+    assert.equal(result.copied, 0);
+    assert.equal(result.failed, 0);
+    assert.deepEqual(result.failures, []);
+    assert.equal(transfers, 0);
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
+test('normal local R2 refresh fails inventory before any transfer', async () => {
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-inventory-failure-'));
+  let transfers = 0;
+
+  try {
+    await assert.rejects(
+      refreshR2([{ storage_key: 'teaching/not-started.png', mime_type: 'image/png' }], {
+        stagingDirectory,
+        listLocalKeys: async () => { throw new Error('inventory unavailable'); },
+        execute: async () => {
+          transfers += 1;
+          return { status: 0 };
+        }
+      }),
+      /Local R2 inventory failed before transfers: inventory unavailable/
+    );
+    assert.equal(transfers, 0);
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
+test('incremental local R2 refresh retains zero-success failure for missing keys', async () => {
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-zero-success-'));
+
+  try {
+    await assert.rejects(
+      refreshR2([{ storage_key: 'teaching/unavailable.png', mime_type: 'image/png' }], {
+        stagingDirectory,
+        listLocalKeys: async () => new Set(),
+        execute: async (_args, context) => {
+          assert.equal(context.kind, 'remote-get');
+          return { status: 1 };
+        }
+      }),
+      /No production R2 objects could be copied/
+    );
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
+test('forced local R2 refresh bypasses inventory and re-copies every current key', async () => {
+  const rows = [
+    { storage_key: 'teaching/repair-a.png', mime_type: 'image/png' },
+    { storage_key: 'teaching/repair-b.png', mime_type: 'image/png' }
+  ];
+  const stagingDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-replica-r2-force-'));
+  const commands = /** @type {Array<{ kind: string, key: string }>} */ ([]);
+  let inventoryCalls = 0;
+
+  try {
+    const result = await refreshR2(rows, {
+      force: true,
+      stagingDirectory,
+      listLocalKeys: async () => {
+        inventoryCalls += 1;
+        throw new Error('forced refresh must not inventory');
+      },
+      execute: async (args, context) => {
+        commands.push({ kind: context.kind, key: context.key });
+        assert.equal(args.includes('--remote'), context.kind === 'remote-get');
+        assert.equal(args.includes('--local'), context.kind === 'local-put');
+        if (context.kind === 'remote-get') writeFileSync(context.file, Buffer.from(context.key));
+        return { status: 0 };
+      }
+    });
+
+    assert.equal(result.alreadyPresent, 'not checked');
+    assert.equal(result.copied, rows.length);
+    assert.equal(result.failed, 0);
+    assert.equal(inventoryCalls, 0);
+    assert.deepEqual(
+      new Set(commands.map(({ kind, key }) => `${kind}:${key}`)),
+      new Set([
+        'remote-get:teaching/repair-a.png',
+        'local-put:teaching/repair-a.png',
+        'remote-get:teaching/repair-b.png',
+        'local-put:teaching/repair-b.png'
+      ])
+    );
+    assert.equal(commands.some(({ kind }) => kind === 'delete'), false);
+  } finally {
+    rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+});
+
 test('local R2 refresh overlaps at most four remote GETs while serializing local PUTs', async () => {
   const rows = Array.from({ length: 8 }, (_, index) => ({
     storage_key: `teaching/asset-${index}.png`,
@@ -98,6 +250,7 @@ test('local R2 refresh overlaps at most four remote GETs while serializing local
   try {
     const result = await refreshR2(rows, {
       stagingDirectory,
+      listLocalKeys: async () => new Set(),
       execute: async (args, context) => {
         if (context.kind === 'remote-get') {
           remoteCommands.push(args);
@@ -158,6 +311,7 @@ test('local R2 refresh applies backpressure before claiming another asset behind
   try {
     const refresh = refreshR2(rows, {
       stagingDirectory,
+      listLocalKeys: async () => new Set(),
       execute: async (_args, context) => {
         if (context.kind === 'remote-get') {
           remoteGetsStarted += 1;
@@ -195,6 +349,18 @@ test('Vite platform proxy persists local state and refuses remote binding connec
   const config = readFileSync(new URL('../svelte.config.js', import.meta.url), 'utf8');
   assert.match(config, /persist:\s*true/);
   assert.match(config, /remoteBindings:\s*false/);
+});
+
+test('local R2 inventory uses the pinned local platform proxy and shared Wrangler namespace', () => {
+  const source = readFileSync(new URL('../scripts/refresh-local-replica.mjs', import.meta.url), 'utf8');
+  assert.match(source, /getPlatformProxy/);
+  assert.match(source, /configPath: wranglerConfigPath/);
+  assert.match(source, /persist: true/);
+  assert.match(source, /remoteBindings: false/);
+  assert.match(source, /\.wrangler\/state\/v3/);
+  assert.match(source, /MEDIA\.list|bucket\.list/);
+  assert.match(source, /page\.truncated/);
+  assert.match(source, /platform\.dispose/);
 });
 
 test('local reset deliberately preserves Better Auth identity tables and clears trigger-protected Original pointers first', () => {

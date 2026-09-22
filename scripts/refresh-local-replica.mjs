@@ -1,8 +1,9 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { getPlatformProxy } from 'wrangler';
 
 import { buildLocalLearnerRuntimeResetSql } from './local-learner-runtime-reset.mjs';
 import {
@@ -24,13 +25,48 @@ import {
 /** @typedef {string | number | boolean | null} D1Value */
 /** @typedef {Record<string, D1Value>} D1Row */
 /** @typedef {{ name: string, selectSql: string, rows: D1Row[] }} ContentSnapshot */
-/** @typedef {{ expected: number, copied: number, failed: number, failures: string[] }} R2RefreshResult */
+/** @typedef {{ total: number, expected: number, alreadyPresent: number | 'not checked', copied: number, failed: number, failures: string[] }} R2RefreshResult */
 
 const stagingDir = '.wrangler/local-replica';
 const dataFile = join(stagingDir, 'production-content.sql');
 const resetFile = join(stagingDir, 'reset-local-content.sql');
 const mediaDir = join(stagingDir, 'media');
 const wranglerCli = join('node_modules', 'wrangler', 'bin', 'wrangler.js');
+const wranglerConfigPath = resolve('wrangler.jsonc');
+// `persist: true` uses Wrangler's default local namespace, `.wrangler/state/v3`.
+// Keep this explicit so CLI `--local`, Vite's platform proxy, and this inventory
+// all point at the same checkout-local resources.
+const localPersistencePath = resolve('.wrangler/state/v3');
+
+/** @returns {Promise<Set<string>>} */
+export async function listLocalR2Keys() {
+  console.log(`Inventorying local MEDIA from ${wranglerConfigPath} at ${localPersistencePath} (remoteBindings=false)...`);
+  const platform = await getPlatformProxy({
+    configPath: wranglerConfigPath,
+    persist: true,
+    remoteBindings: false
+  });
+
+  try {
+    const bucket = /** @type {R2Bucket | undefined} */ (/** @type {unknown} */ (platform.env?.MEDIA));
+    if (!bucket || typeof bucket.list !== 'function') {
+      throw new Error(`Local MEDIA binding is unavailable in ${wranglerConfigPath}.`);
+    }
+
+    const keys = new Set();
+    let cursor;
+    do {
+      const page = await bucket.list(cursor ? { cursor } : undefined);
+      for (const object of page.objects ?? []) keys.add(String(object.key));
+      if (page.truncated && !page.cursor) throw new Error('Local MEDIA inventory page was truncated without a cursor.');
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+
+    return keys;
+  } finally {
+    await platform.dispose();
+  }
+}
 
 function assertRepository() {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -160,7 +196,7 @@ function localAssetRows() {
 
 /**
  * @param {D1Row[] | null} [assetRows]
- * @param {{ execute?: (args: string[], context: { kind: 'remote-get' | 'local-put', key: string, file: string }) => Promise<{ status: number, stderr?: string }>, stagingDirectory?: string }} [options]
+ * @param {{ execute?: (args: string[], context: { kind: 'remote-get' | 'local-put', key: string, file: string }) => Promise<{ status: number, stderr?: string }>, listLocalKeys?: () => Promise<Iterable<string>>, stagingDirectory?: string, force?: boolean }} [options]
  * @returns {Promise<R2RefreshResult>}
  */
 export async function refreshR2(assetRows = null, options = {}) {
@@ -169,6 +205,26 @@ export async function refreshR2(assetRows = null, options = {}) {
   const bucket = readR2BucketName(wrangler, 'MEDIA');
   const stagingDirectory = options.stagingDirectory ?? mediaDir;
   const execute = options.execute ?? (async (args) => runWranglerAsync(args));
+  const force = options.force === true;
+  let rowsToCopy = rows;
+  /** @type {number | 'not checked'} */
+  let alreadyPresent = 'not checked';
+  if (!force) {
+    let localKeys;
+    try {
+      localKeys = new Set(await (options.listLocalKeys ?? listLocalR2Keys)());
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Local R2 inventory failed before transfers: ${reason}`, { cause: error });
+    }
+
+    rowsToCopy = rows.filter((row) => {
+      const key = String(row.storage_key ?? '');
+      return !key || !localKeys.has(key);
+    });
+    alreadyPresent = rows.length - rowsToCopy.length;
+  }
+
   rmSync(stagingDirectory, { recursive: true, force: true });
   mkdirSync(stagingDirectory, { recursive: true, mode: 0o700 });
 
@@ -224,7 +280,7 @@ export async function refreshR2(assetRows = null, options = {}) {
             return;
           }
           copied += 1;
-          console.log(`  [${index + 1}/${rows.length}] copied ${key}`);
+          console.log(`  [${index + 1}/${rowsToCopy.length}] copied ${key}`);
         } catch {
           recordFailure(key, 'write local R2 object');
         } finally {
@@ -241,14 +297,16 @@ export async function refreshR2(assetRows = null, options = {}) {
     while (true) {
       const index = nextIndex;
       nextIndex += 1;
-      if (index >= rows.length) return;
-      await processAsset(rows[index], index);
+      if (index >= rowsToCopy.length) return;
+      await processAsset(rowsToCopy[index], index);
     }
   }
 
-  console.log(`Mirroring ${rows.length} teaching-media objects from production R2 into local R2...`);
+  console.log(
+    `${force ? 'Force re-copying' : 'Incrementally mirroring'} ${rowsToCopy.length} of ${rows.length} teaching-media objects from production R2 into local R2 (${force ? 'already present=not checked' : `${alreadyPresent} already present`})...`
+  );
   try {
-    const workerCount = Math.min(4, rows.length);
+    const workerCount = Math.min(4, rowsToCopy.length);
     await Promise.allSettled(Array.from({ length: workerCount }, () => downloadWorker()));
     await Promise.allSettled(pendingWrites);
   } finally {
@@ -257,12 +315,12 @@ export async function refreshR2(assetRows = null, options = {}) {
     rmSync(stagingDirectory, { recursive: true, force: true });
   }
 
-  console.log(`Local R2 refresh complete: ${copied} copied, ${failed} failed/missing.`);
+  console.log(`Local R2 refresh complete: total=${rows.length}, already present=${alreadyPresent}, copied=${copied}, failed=${failed}.`);
   if (failures.length) console.warn(`Missing/failed R2 keys (${failures.length}): ${failures.join(', ')}`);
-  if (rows.length > 0 && copied === 0) {
+  if (rowsToCopy.length > 0 && copied === 0) {
     throw new Error('No production R2 objects could be copied. Check Cloudflare read authorization before retrying.');
   }
-  return { expected: rows.length, copied, failed, failures };
+  return { total: rows.length, expected: rows.length, alreadyPresent, copied, failed, failures };
 }
 
 function printSafetySummary() {
@@ -277,10 +335,25 @@ function printSafetySummary() {
 async function main() {
   assertRepository();
   assertReplicaContract();
-  const command = process.argv[2] ?? 'all';
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Usage: node scripts/refresh-local-replica.mjs [setup|all|d1|r2] [--force]');
+    console.log('  default, setup, all  refresh Production content into local D1 and incrementally refresh local R2');
+    console.log('  d1                    refresh only local D1 content');
+    console.log('  r2                    incrementally refresh local R2 from local D1 Asset keys');
+    console.log('  --force               bypass local inventory and re-copy every current Asset key; never deletes local objects');
+    return;
+  }
 
-  if (!['setup', 'all', 'd1', 'r2'].includes(command)) {
-    throw new Error('Usage: node scripts/refresh-local-replica.mjs [setup|all|d1|r2]');
+  const force = args.includes('--force');
+  const commandArgs = args.filter((arg) => arg !== '--force');
+  const command = commandArgs[0] ?? 'all';
+
+  if (commandArgs.length > 1 || !['setup', 'all', 'd1', 'r2'].includes(command)) {
+    throw new Error('Usage: node scripts/refresh-local-replica.mjs [setup|all|d1|r2] [--force]');
+  }
+  if (force && command === 'd1') {
+    throw new Error('--force applies only to the local R2 refresh (setup, all, or r2).');
   }
 
   if (command === 'setup') ensureDevVars();
@@ -292,12 +365,12 @@ async function main() {
   }
   if (command === 'r2') {
     applyLocalMigrations();
-    await refreshR2();
+    await refreshR2(null, { force });
     return;
   }
 
   const assets = refreshD1();
-  await refreshR2(assets.map((row) => ({ storage_key: row.storage_key, mime_type: row.mime_type })));
+  await refreshR2(assets.map((row) => ({ storage_key: row.storage_key, mime_type: row.mime_type })), { force });
 
   if (command === 'setup') {
     console.log('\nLocal replica is ready. Next:');
