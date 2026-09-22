@@ -126,12 +126,14 @@ test('Case Library is bounded, counted, SQL-filtered, deterministic, and page-en
   const fixture = createLearningDb();
   try {
     seedCases(fixture);
+    fixture.sqlite.exec("UPDATE cases SET vignette_md = 'editor-only content' WHERE id = 'case-001'");
     fixture.sqlite.exec("INSERT INTO concepts (id, name, slug, is_active) VALUES ('topic-b', 'Topic B', 'topic-b', 1)");
     fixture.sqlite.exec("INSERT INTO case_concepts (case_id, concept_id, role) VALUES ('case-005', 'topic-b', 'primary')");
 
     fixture.statements.length = 0;
     const first = await getCaseLibraryPage(fixture.db, { search: '', tagId: '' }, { page: 1, pageSize: 10 });
     assert.equal(first.rows.length, 10);
+    assert.equal(Object.hasOwn(first.rows[0], 'vignetteMd'), false, 'Case Library list excludes full vignette text');
     assert.equal(first.totalCount, 65);
     assert.equal(first.totalPages, 7);
     assert.deepEqual(first.rows[0].tags, [{ id: 'tag-a', name: 'Alpha' }, { id: 'tag-b', name: 'Beta' }]);
