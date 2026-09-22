@@ -21,7 +21,7 @@
   <div class="admin-body">
     <aside class="admin-sidebar" aria-label="Admin navigation">
       <a href="/admin">Dashboard</a>
-      <a href="/admin/cases" onclick={(event) => { event.currentTarget.href = caseLibraryStateHref(readCaseLibraryStoredState()); }}>Cases</a>
+      <a href="/admin/cases" data-sveltekit-preload-data="off" onclick={(event) => { event.currentTarget.href = caseLibraryStateHref(readCaseLibraryStoredState()); }}>Cases</a>
       <a href="/admin/feedback">Feedback</a>
       <a href="/admin/questions">Questions</a>
       <a href="/admin/shared-questions">Shared Questions</a>
