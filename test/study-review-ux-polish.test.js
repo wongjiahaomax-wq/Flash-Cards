@@ -130,7 +130,7 @@ test('Study Review keeps diagnosis secrecy, frozen-title reveal, media reuse, an
   assert.match(reviewPage, /imageTrigger/);
   assert.doesNotMatch(reviewPage, /onkeydown=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.match(reviewPage, /event\.target === event\.currentTarget/);
-  assert.match(reviewPage, /class="review-reveal-bar"/);
+  assert.doesNotMatch(reviewPage, /class="review-reveal-bar"/);
   assert.match(reviewPage, /class="review-actions"/);
   assert.doesNotMatch(reviewPage, /position:sticky; bottom:1rem/);
   assert.match(reviewPage, /class="run-progress"/);

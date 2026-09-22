@@ -58,6 +58,8 @@
   const draftCoordinator = createCaseEditorCoordinator();
   let draftRevision = $state(0);
   let suppressNextBeforeUnload = false;
+  let removeBeforeUnloadGuard = () => {};
+  let isDiscarding = false;
   /** @type {{ targetUrl: URL, targetGroupId: string | null, selectedIds: string[] } | null} */
   let pendingPickerSearchNavigation = null;
 
@@ -113,6 +115,7 @@
       if (!event.defaultPrevented && submittedForm.method.toLowerCase() === 'post' && hasEditorUnsavedWork()) suppressNextBeforeUnload = true;
     };
     window.addEventListener('beforeunload', beforeUnload);
+    removeBeforeUnloadGuard = () => window.removeEventListener('beforeunload', beforeUnload);
     document.addEventListener('submit', submitGuard, true);
     document.addEventListener('submit', acceptedNativeSubmit);
     /** @param {any} submitContext */
@@ -140,7 +143,8 @@
     return () => {
       unsubscribe();
       unregisterStructuralForms();
-      window.removeEventListener('beforeunload', beforeUnload);
+      removeBeforeUnloadGuard();
+      removeBeforeUnloadGuard = () => {};
       document.removeEventListener('submit', submitGuard, true);
       document.removeEventListener('submit', acceptedNativeSubmit);
       unregisterStableForms();
@@ -166,6 +170,7 @@
   }
 
   function hasEditorUnsavedWork() {
+    if (isDiscarding) return false;
     const inventory = draftCoordinator.dirtyItems();
     // Keep a defensive picker fallback until a dialog has mounted its registration.
     return inventory.length > 0 || (hasCaseEditorPickerSelection() && !inventory.some((item) => item.key === 'picker-selection'));
@@ -176,7 +181,15 @@
     return `Unsaved Case-editor work: ${summary || 'changes'} Leave and lose these changes?`;
   }
 
+  function discardAllChanges() {
+    if (!window.confirm('Discard all unsaved Case-editor changes? This will restore the page to its last saved state. This cannot be undone.')) return;
+    isDiscarding = true;
+    removeBeforeUnloadGuard();
+    window.location.reload();
+  }
+
   beforeNavigate(({ cancel }) => {
+    if (isDiscarding) return;
     if (pendingPickerSearchNavigation) {
       const pending = pendingPickerSearchNavigation;
       pendingPickerSearchNavigation = null;
@@ -191,7 +204,7 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} feedback={feedbackSummary} feedbackReturnQuery={data.feedback?.autoOpen ? data.feedback.returnQuery : ''} onfeedbackopen={() => (feedbackOpen = !feedbackOpen)} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} feedback={feedbackSummary} feedbackReturnQuery={data.feedback?.autoOpen ? data.feedback.returnQuery : ''} onfeedbackopen={() => (feedbackOpen = !feedbackOpen)} ondiscardall={discardAllChanges} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}

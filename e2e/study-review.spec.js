@@ -54,16 +54,9 @@ test('Study Review protects the title until reveal and supports image inspection
   await expect(modal).toHaveCount(0);
   await expect(page.locator('.asset-inspect-button').first()).toBeFocused();
 
-  const topReveal = page.locator('.review-reveal-bar').getByRole('button', { name: 'Reveal answers', exact: true });
-  await expect(topReveal).toBeVisible();
-  expect(await page.locator('.review-reveal-bar').evaluate((element) => getComputedStyle(element).position)).toBe('static');
-
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.locator('.review-reveal-bar')).toBeVisible();
-  const revealBox = await page.locator('.review-reveal-bar').boundingBox();
-  const firstImageBox = await page.locator('.asset-stage').first().boundingBox();
-  expect(revealBox?.y ?? -1).toBeLessThan(firstImageBox?.y ?? -1);
+  await expect(page.locator('.review-actions').getByRole('button', { name: 'Reveal answers', exact: true })).toBeVisible();
 
   const scrollTop = await page.evaluate(() => {
     const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
