@@ -1,7 +1,7 @@
 # Case Editor Tag mutation triggers a false leave/discard confirmation
 
 ## Status
-Planning-only Draft PR. Luna implements this fix in **this same PR**; do not create another PR, merge, or deploy.
+Implementation is pushed to the existing Draft PR. Keep it Draft; do not create another PR, merge, or deploy.
 
 ## Observed behavior and root cause
 The user confirmed the **Case Editor's own** `Unsaved Case-editor work ... Leave and lose these changes?` confirmation (not the browser unload prompt) when selecting an existing Tag and when creating and attaching a new Tag.
