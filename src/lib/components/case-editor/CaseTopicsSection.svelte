@@ -11,7 +11,17 @@
   /** @typedef {{ id: string, name: string }} SystemOption */
   /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout, caseLibraryReturnQuery?: string }} TopicsProps */
   let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout, caseLibraryReturnQuery = '' } = $props();
+  let caseTagsForDisplay = $state([...(selectedCase.caseTags ?? [])]);
+  let tagOptionsForEditor = $state([...tagOptions]);
+  let tagMutationPending = $state(false);
+  let tagMutationError = $state('');
   const UNASSIGNED_SYSTEM_CONTEXT = '__unassigned__';
+
+  $effect(() => {
+    caseTagsForDisplay = [...(selectedCase.caseTags ?? [])];
+    tagOptionsForEditor = [...tagOptions];
+    tagMutationError = '';
+  });
 
   /** @param {CaseTopic | ConceptOption | undefined | null} topic */
   function systemIdFromTopic(topic) {
@@ -49,9 +59,54 @@
     return topics.find((topic) => topic.role === 'primary' && !topic.isActive);
   }
 
-  /** @param {CaseTag[] | undefined} caseTags @param {string} tagId */
-  function hasTag(caseTags, tagId) {
-    return Boolean(caseTags?.some((tag) => tag.id === tagId));
+  /** @param {{ id: string }[] | undefined} tags @param {string} tagId */
+  function hasTag(tags, tagId) {
+    return Boolean(tags?.some((tag) => tag.id === tagId));
+  }
+
+  /** @param {Event} event */
+  async function handleCaseTagSubmit(event) {
+    const form = event.currentTarget;
+    if (!(form instanceof HTMLFormElement) || previewMode) return;
+    event.preventDefault();
+    if (tagMutationPending) return;
+
+    tagMutationError = '';
+    tagMutationPending = true;
+    const formData = new FormData(form);
+    const operation = formData.get('operation');
+    formData.set('response', 'json');
+
+    try {
+      const response = await fetch(form.action, { method: 'POST', body: formData });
+      if (!response.ok) {
+        tagMutationError = (await response.text()).trim() || 'Unable to update this Case Tag.';
+        return;
+      }
+
+      const payload = await response.json();
+      const mutation = payload?.mutation;
+      const tag = mutation?.tag;
+      if (!payload?.ok || mutation?.operation !== operation || typeof tag?.id !== 'string' || typeof tag?.name !== 'string') {
+        tagMutationError = 'Unable to update this Case Tag.';
+        return;
+      }
+
+      if (operation === 'remove') {
+        caseTagsForDisplay = caseTagsForDisplay.filter((currentTag) => currentTag.id !== tag.id);
+      } else {
+        const activeTag = { id: tag.id, name: tag.name, isActive: true };
+        if (!hasTag(caseTagsForDisplay, activeTag.id)) caseTagsForDisplay = [...caseTagsForDisplay, activeTag];
+        if (!hasTag(tagOptionsForEditor, activeTag.id)) tagOptionsForEditor = [...tagOptionsForEditor, { id: activeTag.id, name: activeTag.name }];
+      }
+
+      form.reset();
+      form.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch {
+      tagMutationError = 'Unable to update this Case Tag.';
+    } finally {
+      tagMutationPending = false;
+    }
   }
 
   /** @param {{ name: string, breadcrumb?: BreadcrumbItem[] }} topic */
@@ -290,13 +345,13 @@
 
       <div class="current-block tags-current">
         <span class="field-kicker">Current Tags</span>
-        {#if selectedCase.caseTags?.length}
+        {#if caseTagsForDisplay.length}
           <div class="tag-chips">
-            {#each selectedCase.caseTags as tag}
+            {#each caseTagsForDisplay as tag}
               <div class="tag-chip-wrap">
                 {#if previewMode}<span class:inactive={!tag.isActive} class="tag-chip">{tag.name}</span>{:else}<a class:inactive={!tag.isActive} class="tag-chip" href={'/admin/tags?tag=' + tag.id}>{tag.name}</a>{/if}
                 {#if !previewMode}
-                  <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'}><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
+                  <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} data-case-editor-internal onsubmit={handleCaseTagSubmit}><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" disabled={tagMutationPending} aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
                 {/if}
               </div>
             {/each}
@@ -306,26 +361,30 @@
         {/if}
       </div>
 
+      {#if tagMutationPending}<p class="tag-mutation-pending" role="status">Updating Case Tags…</p>{/if}
+      {#if tagMutationError}<p class="tag-mutation-error" role="alert">{tagMutationError}</p>{/if}
+
       {#if !previewMode}
-        {#if tagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
-          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form form-row">
+        <!-- The local handlers bypass the document-level native submit guard; add/create fields stay in the dirty inventory. -->
+        {#if tagOptionsForEditor.some((tag) => !hasTag(caseTagsForDisplay, tag.id))}
+          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form form-row" data-case-editor-internal onsubmit={handleCaseTagSubmit}>
             <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="operation" value="add" />
-            <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each tagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
-            <button class="button primary" type="submit">Add Tag</button>
+            <label>Add existing Case Tag<select name="tag_id" required disabled={tagMutationPending}><option value="" disabled selected>Select an active Tag</option>{#each tagOptionsForEditor as tag}{#if !hasTag(caseTagsForDisplay, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
+            <button class="button primary" type="submit" disabled={tagMutationPending}>Add Tag</button>
           </form>
         {/if}
 
         <div class="tag-create secondary-section">
           <div class="secondary-heading"><strong>Create a new Case Tag</strong></div>
           <small class="topic-help">Creates a new active global Tag and attaches it to this Case.</small>
-          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form form-row">
+          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form form-row" data-case-editor-internal onsubmit={handleCaseTagSubmit}>
             <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="operation" value="create-and-add" />
-            <label>Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>
-            <button class="button" type="submit">Create &amp; add Tag</button>
+            <label>Tag name<input name="name" maxlength="120" required disabled={tagMutationPending} placeholder="e.g. Prolonged QTc" /></label>
+            <button class="button" type="submit" disabled={tagMutationPending}>Create &amp; add Tag</button>
           </form>
         </div>
       {:else}
@@ -342,6 +401,9 @@
   .muted { color: #667085; }
   .stack { display: grid; gap: 0.75rem; }
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
+  .tag-mutation-pending, .tag-mutation-error { margin: 0.5rem 0; }
+  .tag-mutation-pending { color: #667085; }
+  .tag-mutation-error { color: #b42318; font-weight: 650; }
 
   .taxonomy-context { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.65rem 1rem; padding: 0.72rem 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
   .taxonomy-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.18rem 0.65rem; min-width: 0; }

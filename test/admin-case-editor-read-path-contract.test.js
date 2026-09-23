@@ -18,14 +18,25 @@ test('Production Case editor loads selector data from one taxonomy source plus l
 
 test('CaseTopicsSection consumes supplied Tag options without a mounted Tag-options GET', () => {
   assert.doesNotMatch(topicsSection, /\bonMount\s*\(/);
-  assert.doesNotMatch(topicsSection, /\bfetch\s*\(/);
+  assert.match(topicsSection, /fetch\(form\.action, \{ method: 'POST', body: formData \}\)/);
   assert.doesNotMatch(topicsSection, /loadedTagOptions|effectiveTagOptions/);
-  assert.match(topicsSection, /tagOptions\.some\(/);
-  assert.match(topicsSection, /\{#each tagOptions as tag\}/);
+  assert.match(topicsSection, /tagOptionsForEditor\.some\(/);
+  assert.match(topicsSection, /\{#each tagOptionsForEditor as tag\}/);
+});
+
+test('Case Editor Tag submissions stay inline and the general leave warning remains active', () => {
+  assert.equal((topicsSection.match(/onsubmit=\{handleCaseTagSubmit\}/g) ?? []).length, 3);
+  assert.equal((topicsSection.match(/data-case-editor-internal/g) ?? []).length, 3);
+  assert.match(topicsSection, /formData\.set\('response', 'json'\)/);
+  assert.match(topicsSection, /form\.reset\(\)/);
+  assert.match(topicsSection, /form\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/);
+  assert.match(topicsSection, /tagMutationError.*role="alert"/s);
+  assert.doesNotMatch(topicsSection, /invalidateAll/);
+  assert.match(page, /beforeNavigate\(\(\{ cancel \}\) => \{[\s\S]*hasEditorUnsavedWork\(\) && !window\.confirm\(leaveWarning\(\)\)/);
 });
 
 test('Case Tag assignments and server-authoritative mutation contracts remain in place', () => {
-  assert.match(topicsSection, /\{#each selectedCase\.caseTags as tag\}/);
+  assert.match(topicsSection, /\{#each caseTagsForDisplay as tag\}/);
   for (const operation of ['add', 'remove', 'create-and-add']) {
     assert.match(topicsSection, new RegExp(`name=["']operation["'] value=["']${operation}["']`));
   }

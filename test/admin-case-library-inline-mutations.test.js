@@ -63,14 +63,15 @@ async function classificationPost(d1, caseId, conceptId) {
   }));
 }
 
-/** @param {any} d1 @param {string} caseId @param {string} operation @param {string} tagId */
-async function tagPost(d1, caseId, operation, tagId) {
+/** @param {any} d1 @param {string} caseId @param {string} operation @param {string} tagId @param {{ response?: 'json' | null, name?: string }} [options] */
+async function tagPost(d1, caseId, operation, tagId, options = {}) {
   const { POST } = await import('../src/routes/admin/cases/[caseId]/case-tags/+server.js');
   const body = new FormData();
   body.set('case_id', caseId);
   body.set('operation', operation);
   body.set('tag_id', tagId);
-  body.set('response', 'json');
+  if (options.response !== null) body.set('response', options.response ?? 'json');
+  if (options.name) body.set('name', options.name);
   return POST(/** @type {any} */ ({
     request: new Request(`http://localhost/admin/cases/${caseId}/case-tags`, { method: 'POST', body }),
     locals: { user: { role: 'admin' } },
@@ -137,6 +138,47 @@ test('existing-Tag route returns a no-op result without inventing updatedAt', as
     assert.equal(payload.mutation.operation, 'remove');
     assert.equal(payload.mutation.changed, false);
     assert.equal(payload.mutation.updatedAt, null);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('create-and-add Tag JSON returns the created Tag and attaches it to the Case', async () => {
+  const fixture = createD1Fixture();
+  try {
+    const caseId = 'seed-anterior-a';
+    const response = await tagPost(fixture.d1, caseId, 'create-and-add', '', { name: 'Created from Case editor' });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.status, 'case-tag-created');
+    assert.equal(payload.mutation.operation, 'create-and-add');
+    assert.equal(payload.mutation.tag.name, 'Created from Case editor');
+    assert.equal(typeof payload.mutation.tag.id, 'string');
+    assert.equal(
+      fixture.sqlite.prepare('SELECT count(*) AS count FROM case_tags WHERE case_id = ? AND tag_id = ?').get(caseId, payload.mutation.tag.id)?.count,
+      1
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('create-and-add native Tag POST keeps the existing Case editor redirect', async () => {
+  const fixture = createD1Fixture();
+  try {
+    const caseId = 'seed-anterior-a';
+    await assert.rejects(
+      tagPost(fixture.d1, caseId, 'create-and-add', '', { response: null, name: 'Created from native POST' }),
+      (error) => {
+        const redirect = /** @type {{ status?: number; location?: string }} */ (error);
+        return redirect.status === 303 && redirect.location === `/admin/cases/${caseId}?status=case-tag-created#topics`;
+      }
+    );
+    assert.equal(
+      fixture.sqlite.prepare("SELECT count(*) AS count FROM case_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.case_id = ? AND t.name = ?").get(caseId, 'Created from native POST')?.count,
+      1
+    );
   } finally {
     fixture.sqlite.close();
   }

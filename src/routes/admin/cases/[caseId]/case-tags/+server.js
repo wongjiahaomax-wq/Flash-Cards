@@ -45,7 +45,7 @@ export async function POST({ request, locals, platform, params }) {
     if (operation === 'add') mutation = await addCaseTag(db, { caseId, tagId });
     else if (operation === 'remove') mutation = await removeCaseTag(db, { caseId, tagId });
     else if (operation === 'create-and-add') {
-      await createAndAddCaseTag(db, { caseId, name: formText(formData, 'name') });
+      mutation = await createAndAddCaseTag(db, { caseId, name: formText(formData, 'name') });
     } else return new Response('Choose a valid Case Tag operation.', { status: 400 });
   } catch (error) {
     if (error instanceof TagInputError || error instanceof ContentGuardError) return new Response(error.message, { status: 400 });
@@ -56,7 +56,12 @@ export async function POST({ request, locals, platform, params }) {
   const status = operation === 'create-and-add'
     ? 'case-tag-created'
     : `case-tag-${operation === 'add' ? 'added' : 'removed'}`;
-  if (wantsJson) return json({ ok: true, status, mutation: operation === 'add' || operation === 'remove' ? { ...mutation, operation } : null });
+  if (wantsJson) {
+    const responseMutation = operation === 'create-and-add'
+      ? { tag: mutation, operation }
+      : { ...mutation, operation };
+    return json({ ok: true, status, mutation: responseMutation });
+  }
   const returnQuery = editorReturnQuery(request, formData);
   redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=${status}${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}#topics`);
 }
