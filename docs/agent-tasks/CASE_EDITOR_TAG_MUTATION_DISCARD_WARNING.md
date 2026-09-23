@@ -1,7 +1,7 @@
 # Case Editor Tag mutation triggers a false leave/discard confirmation
 
 ## Status
-Implementation is pushed to the existing Draft PR. Keep it Draft; do not create another PR, merge, or deploy.
+Tag tranche implemented in existing Draft PR #201. The PR also now includes planned Markdown numbering and unassigned-Case preview fixes; see [the combined PR #201 plan](CASE_EDITOR_PR201_AUTHORING_FIXES.md). Keep it Draft; do not create another PR, merge, or deploy.
 
 ## Observed behavior and root cause
 The user confirmed the **Case Editor's own** `Unsaved Case-editor work ... Leave and lose these changes?` confirmation (not the browser unload prompt) when selecting an existing Tag and when creating and attaching a new Tag.
@@ -28,4 +28,4 @@ Adding an existing Tag and creating+adding a Tag should finish inline **without 
 - Focused endpoint coverage checks the create-and-add JSON response and preserves native redirect behavior. One small browser/manual interaction pass is sufficient for the actual confirmation behavior; avoid broad Playwright expansion.
 
 ## Scope and handoff
-No learner eligibility, Preview Worker, auth, FSRS, schema/migrations, or unrelated Case Editor refactor. This PR covers the Tag confirmation defect only; the unassigned-Case preview and Markdown numbering defects are separate requests. Follow the repository's current progressive retrieval and validation guidance. Report what ran and the exact PR head and CI state. Leave this PR Draft, unmerged and undeployed.
+No learner eligibility, Preview Worker, auth, FSRS, schema/migrations, or unrelated Case Editor refactor. This document covers the **already-implemented Tag tranche only**; the two additional changes in the same PR are specified in [the combined PR #201 plan](CASE_EDITOR_PR201_AUTHORING_FIXES.md). Follow the repository's current progressive retrieval and validation guidance. Report what ran and the exact PR head and CI state. Leave this PR Draft, unmerged and undeployed.
