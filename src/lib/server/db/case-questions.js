@@ -46,6 +46,22 @@ async function requireCaseContext(db, caseId) {
 }
 
 /** @param {LearningDb} db @param {string} caseId */
+async function caseQuestionListingContext(db, caseId) {
+  try {
+    return await requireCaseContext(db, caseId);
+  } catch (cause) {
+    if (!(cause instanceof CaseQuestionInputError)) throw cause;
+    const casesWithoutPrimaryTopic = await db
+      .select({ caseId: cases.id })
+      .from(cases)
+      .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
+      .limit(1);
+    if (!casesWithoutPrimaryTopic[0]) throw cause;
+    return { caseId: casesWithoutPrimaryTopic[0].caseId, conceptId: null };
+  }
+}
+
+/** @param {LearningDb} db @param {string} caseId */
 async function loadCaseQuestionRows(db, caseId) {
   return db
     .select({
@@ -65,10 +81,10 @@ async function loadCaseQuestionRows(db, caseId) {
 
 /** @param {LearningDb} db @param {string} caseId */
 export async function listCaseQuestions(db, caseId) {
-  const context = await requireCaseContext(db, caseId);
+  const context = await caseQuestionListingContext(db, caseId);
   const rows = await loadCaseQuestionRows(db, caseId);
   const promptIds = rows.map((row) => row.questionPromptId);
-  const reusableRows = promptIds.length
+  const reusableRows = promptIds.length && context.conceptId
     ? await db
         .select({ questionPromptId: conceptQuestions.questionPromptId })
         .from(conceptQuestions)
