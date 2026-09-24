@@ -101,6 +101,11 @@ globalThis.__presentationTest = {
     selectedSourcePath = null;
   },
   setRender(fn) { renderCurrent = fn; },
+  setPersist(fn) { persist = fn; },
+  setLoadResources(fn) { loadResources = fn; },
+  enterCoverage,
+  renderCurrent,
+  orderedCoverage,
   refsHtml,
   questionCard,
   wireCurrent,
@@ -204,4 +209,60 @@ test('styled file input keeps the real onchange load path executable', async () 
   assert.equal(elements.get('empty-start').hidden, true);
   assert.equal(elements.get('review-shell').hidden, false);
   assert.equal(elements.get('batch').textContent, 'Presentation browser test');
+});
+
+test('gallery follows sourceFiles and page order despite shuffled multi-source coverage; read-only navigation preserves approval', async () => {
+  const { harness, elements } = loadHarness();
+  const bundle = makeBundle();
+  bundle.reviewMap.sourceFiles.reverse();
+  bundle.reviewMap.sourceCoverage.reverse();
+  bundle.reviewMap.cases[0].reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  harness.setRender(async () => {});
+  elements.get('coverage').click();
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
+  elements.get('coverage-gallery').click();
+  const html = elements.get('workspace').innerHTML;
+  const labels = ['source-2.pdf · Slide 3', 'source-2.pdf · Slide 4', 'source-1.pdf · Slide 3', 'source-1.pdf · Slide 4'];
+  const offsets = labels.map(label => html.indexOf(label));
+  assert.ok(offsets.every(offset => offset > 0), html);
+  assert.deepEqual(offsets, [...offsets].sort((a, b) => a - b));
+  assert.doesNotMatch(html, /<img[^>]* src=/, 'gallery does not eagerly load every full-resolution image');
+  await elements.get('approve').click();
+  await elements.get('reject').click();
+  elements.get('next').click();
+  const filter = elements.get('filter');
+  filter.value = 'rejected';
+  filter.onchange({ target: filter });
+  assert.equal(filter.value, 'all');
+  assert.equal(harness.current().index, 0);
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
+  assert.equal(elements.get('approve').disabled, true);
+  assert.equal(elements.get('reject').disabled, true);
+});
+
+test('committing an approved Case edit while entering gallery preserves approval invalidation and late saves cannot replace gallery', async () => {
+  const { harness, context, elements, selectorResults } = loadHarness();
+  const bundle = makeBundle();
+  const meta = bundle.reviewMap.cases[0];
+  meta.reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  let finishPersist;
+  harness.setPersist(() => new Promise(resolve => { finishPersist = resolve; }));
+  const input = makeElement({ dataset: { edit: 'case.title' }, value: 'Edited title' });
+  selectorResults.set('[data-edit]', [input]);
+  harness.wireCurrent(meta);
+  context.document.activeElement = { blur() { input.listener('change')(); } };
+  elements.get('coverage').click();
+  assert.equal(bundle.manifest.cases[0].title, 'Edited title');
+  assert.equal(meta.reviewStatus, 'needs_review', 'real content edits retain existing approval invalidation');
+  elements.get('coverage-gallery').click();
+  const grid = elements.get('coverage-gallery-grid');
+  grid.scrollTop = 72;
+  const galleryHtml = elements.get('workspace').innerHTML;
+  finishPersist(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(elements.get('workspace').innerHTML, galleryHtml, 'late edit save must not replace gallery');
+  assert.equal(grid.scrollTop, 72, 'late edit save must not reset scroll position');
+  assert.equal(meta.reviewStatus, 'needs_review');
 });
