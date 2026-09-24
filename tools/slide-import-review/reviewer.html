@@ -803,16 +803,26 @@ function loadGallery() {
   if (!grid) return;
   const pages = orderedCoverage();
   const slides = [...grid.querySelectorAll('.coverage-slide:not(:disabled)')];
+  const visible = new Set();
   const load = async card => {
     const image = card.querySelector('img'), page = pages[Number(card.dataset.galleryIndex)];
-    if (!image || !page?.previewPath || image.getAttribute('src')) return;
-    const url = await resourceUrl(page.previewPath, null, loadGeneration, new Set([page.previewPath]));
-    if (token !== galleryToken || !coverageMode || coverageView !== 'gallery' || !card.isConnected || !url) return;
-    image.src = url;
+    if (!visible.has(card) || !image || !page?.previewPath || image.getAttribute('src') || image.dataset.loading) return;
+    image.dataset.loading = 'true';
+    try {
+      const url = await resourceUrl(page.previewPath, null, loadGeneration, new Set([page.previewPath]));
+      if (!visible.has(card) || token !== galleryToken || !coverageMode || coverageView !== 'gallery' || !card.isConnected || !url) return;
+      image.src = url;
+    } finally { delete image.dataset.loading; }
   };
   if (typeof IntersectionObserver === 'undefined') {
-    // Old-browser fallback: only the visible portion, not the entire ZIP.
-    const loadVisible = () => slides.filter(card => card.offsetTop < grid.scrollTop + grid.clientHeight + 100 && card.offsetTop + card.offsetHeight >= grid.scrollTop - 100).forEach(load);
+    const loadVisible = () => {
+      for (const card of slides) {
+        const onscreen = card.offsetTop < grid.scrollTop + grid.clientHeight + 100 && card.offsetTop + card.offsetHeight >= grid.scrollTop - 100;
+        if (onscreen) { visible.add(card); load(card); }
+        else { visible.delete(card); card.querySelector('img')?.removeAttribute('src'); }
+      }
+      trimUrls();
+    };
     grid.addEventListener('scroll', loadVisible);
     loadVisible();
     return;
@@ -820,9 +830,10 @@ function loadGallery() {
   galleryObserver = new IntersectionObserver(entries => {
     for (const entry of entries) {
       const image = entry.target.querySelector('img');
-      if (entry.isIntersecting) load(entry.target);
-      else if (image?.getAttribute('src')) {
-        image.removeAttribute('src');
+      if (entry.isIntersecting) { visible.add(entry.target); load(entry.target); }
+      else {
+        visible.delete(entry.target);
+        if (image?.getAttribute('src')) image.removeAttribute('src');
         trimUrls();
       }
     }
