@@ -410,3 +410,23 @@ test('moving a Case question respects the cross-Alternative-Set prompt invariant
     fixture.sqlite.close();
   }
 });
+
+
+test('Case-question listing remains available without a Primary Topic while question writes stay guarded', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec("DELETE FROM case_concepts WHERE case_id = 'seed-anterior-a'");
+
+    const questions = await listCaseQuestions(fixture.db, 'seed-anterior-a');
+
+    assert.deepEqual(questions.map((question) => question.questionPromptId), ['seed-prompt-describe-ecg']);
+    assert.equal(questions[0].reusableForTopic, false);
+    await assert.rejects(
+      saveCaseQuestion(fixture.db, { caseId: 'seed-anterior-a', promptMd: 'New question', answerMd: 'Saved answer' }),
+      /primary topic is missing or inactive/
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_questions WHERE case_id = 'seed-anterior-a'").get()?.count, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});

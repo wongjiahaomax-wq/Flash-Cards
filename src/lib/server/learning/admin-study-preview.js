@@ -1,5 +1,16 @@
-import { buildActiveReviewSnapshot } from '../db/active-review-content.js';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+
+import {
+  ActiveReviewContentError,
+  ACTIVE_REVIEW_SNAPSHOT_VERSION,
+  assertActiveReviewSnapshotSupported,
+  buildActiveReviewSnapshot
+} from '../db/active-review-content.js';
+import { assets, caseAssets, caseConcepts, caseQuestions, cases, concepts, questionPrompts, stimulusGroups } from '../db/schema.js';
+import { loadLearnerStimulusFamilies } from '../db/learner-stimulus-families.js';
 import { loadStudyNavigationSnapshot } from '../db/study-navigation.ts';
+import { pickReviewQuestions } from './questions.js';
+import { resolveQuestionPoolForMode } from './question-pool-mode.ts';
 import {
   buildSystemStudyNavigation,
   normalizeSystemStudySelectionRoutes,
@@ -92,10 +103,180 @@ async function buildAdminStudyPreviewFromSelection(input, selection) {
   };
 }
 
+/** @param {{version:number,case:any,questions:any[],assets:any[],bytes:number}} snapshot */
+function withPreviewImageUrls(snapshot) {
+  return {
+    ...snapshot,
+    assets: snapshot.assets.map((asset) => ({
+      ...asset,
+      imageUrl: `/api/assets/${encodeURIComponent(asset.assetId)}/image`
+    }))
+  };
+}
+
+/**
+ * Read saved Case-specific Original questions and fixed/Original images when
+ * an active Production Case has no usable Primary Topic. This path is only for
+ * direct Admin preview; learner eligibility and snapshot loading stay intact.
+ *
+ * @param {{db:import('../db/index.js').LearningDb,caseId:string,rng?:()=>number}} input
+ * @param {{id:string,title:string,vignetteMd:string|null,questionSelectionMode:string,questionCount:number|null}} caseRow
+ */
+async function buildCaseSpecificAdminPreview(input, caseRow) {
+  const groups = await input.db
+    .select({ id: stimulusGroups.id, originalOptionId: stimulusGroups.originalOptionId })
+    .from(stimulusGroups)
+    .where(and(eq(stimulusGroups.caseId, caseRow.id), eq(stimulusGroups.isActive, true)))
+    .orderBy(asc(stimulusGroups.displayOrder), asc(stimulusGroups.id));
+  if (groups.some((group) => !group.originalOptionId)) {
+    throw new AdminStudyPreviewUnavailableError(
+      'This Case has no usable Primary Topic and an active image set without a designated Original image. Set an Original image or assign a Primary Topic before previewing it.'
+    );
+  }
+
+  const fixedAssets = await input.db
+    .select({
+      assetId: assets.id,
+      storageKey: assets.storageKey,
+      altText: assets.altText,
+      captionMd: caseAssets.captionMd,
+      displayOrder: caseAssets.displayOrder
+    })
+    .from(caseAssets)
+    .innerJoin(assets, eq(assets.id, caseAssets.assetId))
+    .where(and(eq(caseAssets.caseId, caseRow.id), eq(assets.isActive, true), isNull(assets.previewSessionId)))
+    .orderBy(asc(caseAssets.displayOrder));
+  const rng = input.rng ?? (() => 0);
+  const stimulus = await loadLearnerStimulusFamilies(input.db, {
+    caseId: caseRow.id,
+    questionPoolMode: 'core',
+    rng,
+    fixedAssetCount: fixedAssets.length
+  });
+  const hasUnavailableOriginal = groups.some((group) => {
+    const selected = stimulus.assets.find((asset) => asset.stimulusGroupId === group.id);
+    return !selected || selected.stimulusOptionId !== group.originalOptionId;
+  });
+  if (hasUnavailableOriginal) {
+    throw new AdminStudyPreviewUnavailableError(
+      'An active Original image for this Case is unavailable in Production. Restore it or assign a usable Primary Topic before previewing.'
+    );
+  }
+
+  const caseQuestionRows = await input.db
+    .select({
+      questionPromptId: caseQuestions.questionPromptId,
+      answerMd: caseQuestions.answerMd,
+      isActive: caseQuestions.isActive
+    })
+    .from(caseQuestions)
+    .where(and(eq(caseQuestions.caseId, caseRow.id), eq(caseQuestions.isActive, true)))
+    .orderBy(asc(caseQuestions.createdAt), asc(caseQuestions.questionPromptId));
+  const stimulusQuestions = [...stimulus.stimulusGroupQuestions, ...stimulus.stimulusOptionQuestions];
+  const promptIds = [...new Set([
+    ...caseQuestionRows.map((question) => question.questionPromptId),
+    ...stimulusQuestions.map((question) => question.questionPromptId)
+  ])];
+  const prompts = new Map();
+  const promptQueryBatchSize = 99; // Leaves room for the active-state predicate in D1.
+  for (let offset = 0; offset < promptIds.length; offset += promptQueryBatchSize) {
+    const promptBatch = promptIds.slice(offset, offset + promptQueryBatchSize);
+    const promptRows = await input.db
+      .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
+      .from(questionPrompts)
+      .where(and(
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId),
+        inArray(questionPrompts.id, promptBatch)
+      ));
+    for (const prompt of promptRows) prompts.set(prompt.id, prompt.promptMd);
+  }
+  /** @template {{questionPromptId:string}} T @param {T[]} questions @returns {(T & {promptMd:string})[]} */
+  const attachPrompt = (questions) => questions
+    .filter((question) => prompts.has(question.questionPromptId))
+    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '' }));
+  const questionPool = resolveQuestionPoolForMode('core', {
+    caseQuestions: attachPrompt(caseQuestionRows),
+    stimulusGroupQuestions: attachPrompt(stimulus.stimulusGroupQuestions),
+    stimulusOptionQuestions: attachPrompt(stimulus.stimulusOptionQuestions)
+  });
+  if (questionPool.length === 0) {
+    throw new AdminStudyPreviewUnavailableError(
+      'This Case has no active Production Case-specific Original questions to preview without a Primary Topic. Add a Case or Original stimulus question, or assign a usable Primary Topic.'
+    );
+  }
+
+  let selectedQuestions;
+  try {
+    selectedQuestions = pickReviewQuestions(questionPool, {
+      rng,
+      mode: /** @type {'automatic'|'all'|'fixed'} */ (caseRow.questionSelectionMode),
+      count: caseRow.questionCount ?? 3,
+      groupCoverage: stimulus.groupCoverage,
+      preservePoolOrder: true
+    });
+  } catch (cause) {
+    if (cause instanceof Error && (cause.message.startsWith('Stimulus Group ') || cause.message.includes('stimulus-specific question coverage'))) {
+      throw new ActiveReviewContentError(
+        'content-unavailable',
+        'Saved Original questions cannot satisfy this Case’s stimulus-specific question requirement.'
+      );
+    }
+    throw cause;
+  }
+  if (selectedQuestions.length === 0) {
+    throw new AdminStudyPreviewUnavailableError('This Case has no eligible saved Original questions to preview.');
+  }
+
+  const snapshot = {
+    version: ACTIVE_REVIEW_SNAPSHOT_VERSION,
+    case: { id: caseRow.id, title: caseRow.title, vignetteMd: caseRow.vignetteMd },
+    questions: selectedQuestions.map((question) => ({
+      questionPromptId: question.questionPromptId,
+      sourceType: question.sourceType,
+      sourceConceptId: question.sourceConceptId,
+      sourceStimulusGroupId: question.sourceStimulusGroupId,
+      sourceStimulusOptionId: question.sourceStimulusOptionId,
+      sourceAssetQuestionId: question.sourceAssetQuestionId ?? null,
+      sourceSharedQuestionId: question.sourceSharedQuestionId,
+      displayOrder: question.displayOrder,
+      promptSnapshotMd: question.promptMd,
+      answerSnapshotMd: question.answerMd
+    })),
+    assets: [
+      ...fixedAssets.map((asset) => ({
+        assetId: asset.assetId,
+        displayOrder: asset.displayOrder,
+        storageKeySnapshot: asset.storageKey,
+        captionSnapshotMd: asset.captionMd,
+        altTextSnapshot: asset.altText,
+        sourceStimulusGroupId: null,
+        sourceStimulusOptionId: null
+      })),
+      ...stimulus.assets.map((asset) => ({
+        assetId: asset.assetId,
+        displayOrder: asset.displayOrder,
+        storageKeySnapshot: asset.storageKey,
+        captionSnapshotMd: asset.captionMd,
+        altTextSnapshot: asset.altText,
+        sourceStimulusGroupId: asset.stimulusGroupId,
+        sourceStimulusOptionId: asset.stimulusOptionId
+      }))
+    ]
+  };
+  const bytes = assertActiveReviewSnapshotSupported(snapshot);
+  return {
+    candidate: { id: caseRow.id, title: caseRow.title, studyConceptId: null },
+    snapshot: withPreviewImageUrls({ ...snapshot, bytes })
+  };
+}
+
 /**
  * Resolve one exact Case through the same current System/Topic/Tag candidate
  * boundary used by the generic Admin Study Preview, without requiring Admin to
- * choose a System or route first.
+ * choose a System or route first. When no route reaches it, direct Admin preview
+ * may resolve its active Production Primary Topic or saved Case-specific
+ * Original content without relaxing learner eligibility.
  *
  * @param {{
  *   db: import('../db/index.js').LearningDb,
@@ -131,5 +312,48 @@ export async function buildDirectAdminStudyPreview(input) {
       rng: input.rng
     }, selection);
   }
-  throw new AdminStudyPreviewUnavailableError('This Case is not currently eligible for learner study preview.');
+
+  const caseRows = await input.db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      questionSelectionMode: cases.questionSelectionMode,
+      questionCount: cases.questionCount
+    })
+    .from(cases)
+    .where(and(eq(cases.id, input.caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
+    .limit(1);
+  const caseRow = caseRows[0];
+  if (!caseRow) {
+    throw new AdminStudyPreviewUnavailableError('This active Production Case is unavailable for direct Admin preview.');
+  }
+
+  const primaryTopics = await input.db
+    .select({ studyConceptId: concepts.id })
+    .from(caseConcepts)
+    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(
+      eq(caseConcepts.caseId, caseRow.id),
+      eq(caseConcepts.role, 'primary'),
+      eq(concepts.kind, 'topic'),
+      eq(concepts.isActive, true)
+    ))
+    .limit(1);
+  const primaryTopic = primaryTopics[0];
+  if (!primaryTopic) {
+    return buildCaseSpecificAdminPreview(input, caseRow);
+  }
+
+  const snapshot = await buildActiveReviewSnapshot({
+    db: input.db,
+    caseId: caseRow.id,
+    studyConceptId: primaryTopic.studyConceptId,
+    contentMode: input.contentMode,
+    rng: input.rng ?? (() => 0)
+  });
+  return {
+    candidate: { id: caseRow.id, title: caseRow.title, studyConceptId: primaryTopic.studyConceptId },
+    snapshot: withPreviewImageUrls(snapshot)
+  };
 }

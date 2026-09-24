@@ -1,5 +1,6 @@
 <script>
   import MarkdownContent from '$lib/components/MarkdownContent.svelte';
+  import { toggleNumberedList } from './markdown-field-numbered-list.js';
 
   /** @param {HTMLTextAreaElement} _node */
   const noopAction = (_node) => {};
@@ -47,7 +48,7 @@
     { label: 'Italic', kind: 'inline', before: '*', after: '*', placeholder: 'emphasis' },
     { label: 'Heading', kind: 'block', before: '## ', placeholder: 'Heading' },
     { label: 'Bullet list', kind: 'block', before: '- ', placeholder: 'List item' },
-    { label: 'Numbered list', kind: 'block', before: '1. ', placeholder: 'List item' },
+    { label: 'Numbered list', kind: 'numbered-list', before: '1. ', placeholder: 'List item' },
     { label: 'Link', kind: 'link', before: '[', after: '](https://)', placeholder: 'link text' }
   ];
 
@@ -135,6 +136,18 @@
     commit(next, range.start, range.start + replacement.length);
   }
 
+  /** @param {{placeholder:string}} tool */
+  function toggleNumberedListBlock(tool) {
+    if (!textarea) return;
+    const result = toggleNumberedList(
+      draftValue,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      tool.placeholder
+    );
+    commit(result.value, result.selectionStart, result.selectionEnd);
+  }
+
   /** @param {{before:string,after:string,placeholder:string}} tool */
   function toggleInline(tool) {
     if (!textarea) return;
@@ -216,7 +229,8 @@
 
   /** @param {{kind:string,before:string,after?:string,placeholder:string}} tool */
   function applyTool(tool) {
-    if (tool.kind === 'block') toggleBlock(tool);
+    if (tool.kind === 'numbered-list') toggleNumberedListBlock(tool);
+    else if (tool.kind === 'block') toggleBlock(tool);
     else if (tool.kind === 'link') toggleLink({ ...tool, after: tool.after ?? '' });
     else toggleInline({ ...tool, after: tool.after ?? '' });
   }
@@ -284,7 +298,7 @@
             onclick={() => applyTool(tool)}
             disabled={disabled}
             aria-label={`Toggle ${tool.label}`}
-            title={tool.kind === 'block' ? `Apply ${tool.label.toLowerCase()} to the current or selected lines` : `Toggle ${tool.label.toLowerCase()}`}
+            title={tool.kind === 'block' || tool.kind === 'numbered-list' ? `Apply ${tool.label.toLowerCase()} to the current or selected lines` : `Toggle ${tool.label.toLowerCase()}`}
           >{tool.label}</button>
         {/each}
         <button type="button" onclick={undo} disabled={disabled || editHistory.length === 0} title="Undo the last toolbar change">Undo</button>
