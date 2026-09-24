@@ -20,6 +20,11 @@ function makeElement(overrides = {}) {
     querySelector() { return null; },
     querySelectorAll() { return []; },
     addEventListener(type, listener) { listeners.set(type, listener); },
+    insertAdjacentHTML(position, html) { this.innerHTML += html; },
+    removeAttribute(name) { if (name === 'src') this.src = ''; },
+    remove() { this.removed = true; this.isConnected = false; },
+    focus() { this.focused = true; },
+    isConnected: true,
     listener(type) { return listeners.get(type); },
     click() { return this.onclick?.(); },
     ...overrides
@@ -106,6 +111,9 @@ globalThis.__presentationTest = {
   enterCoverage,
   renderCurrent,
   orderedCoverage,
+  openViewer,
+  showViewerSlide,
+  closeViewer,
   refsHtml,
   questionCard,
   wireCurrent,
@@ -115,7 +123,9 @@ globalThis.__presentationTest = {
 `;
   const elements = new Map();
   const selectorResults = new Map();
+  const documentListeners = new Map();
   const document = {
+    listener(type) { return documentListeners.get(type); },
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, makeElement());
       return elements.get(id);
@@ -125,7 +135,7 @@ globalThis.__presentationTest = {
       return null;
     },
     querySelectorAll(selector) { return selectorResults.get(selector) ?? []; },
-    addEventListener() {},
+    addEventListener(type, callback) { documentListeners.set(type, callback); },
     createElement() { return makeElement(); }
   };
   const window = { addEventListener() {}, confirm: () => false };
@@ -265,4 +275,27 @@ test('committing an approved Case edit while entering gallery preserves approval
   assert.equal(elements.get('workspace').innerHTML, galleryHtml, 'late edit save must not replace gallery');
   assert.equal(grid.scrollTop, 72, 'late edit save must not reset scroll position');
   assert.equal(meta.reviewStatus, 'needs_review');
+});
+
+test('viewer receives and restores focus; slide arrows cannot mutate the underlying Case', async () => {
+  const { harness, context, elements } = loadHarness();
+  const bundle = makeBundle();
+  bundle.reviewMap.cases[0].reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  harness.setRender(async () => {});
+  const trigger = makeElement({ focus() { context.document.activeElement = this; } });
+  const close = makeElement({ focus() { context.document.activeElement = this; } });
+  elements.set('coverage-viewer-close', close);
+  elements.set('workspace', makeElement());
+  harness.enterCoverage();
+  elements.get('coverage-gallery').click();
+  harness.openViewer(0, trigger);
+  assert.equal(context.document.activeElement, close, 'focus moves into viewer');
+  await harness.showViewerSlide(1);
+  assert.match(elements.get('coverage-viewer-position').textContent, /source-1\.pdf · Slide 4 of 4/);
+  context.document.listener('keydown')({ key: 'x', target: null, preventDefault() {} });
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved', 'Case shortcuts are isolated');
+  context.document.listener('keydown')({ key: 'Escape', target: null, preventDefault() {} });
+  assert.equal(context.document.activeElement, trigger, 'focus returns to invoking thumbnail');
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
 });
