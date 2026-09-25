@@ -1,20 +1,21 @@
 # Question Prompt route authorization — implementation plan
 
 ## Objective
-Close the missing Production Admin authorization boundary in `src/routes/admin/questions/[promptId]/+page.server.js`. This is a focused security fix to the existing Question Prompt detail/read and `updatePrompt` form action. Implement in this same Draft PR.
+Close the missing Production Admin authorization boundary in `src/routes/admin/questions/[promptId]/+page.server.js`. This is a focused fix to the Question Prompt read and `updatePrompt` action; implement in this same Draft PR.
 
 ## Current behavior / risk
-The route's `load` and `updatePrompt` read Production Question Prompts without checking `locals.user` or an admin role. The parent Admin layout redirects non-admins on normal navigation, but a direct form-action POST must enforce its own authorization. The shared-edit confirmation and Production-owned prompt check are not permission checks. Preview already blocks `/admin` requests in `hooks.server.js`; do not change Preview in this PR.
+Neither route `load` nor `updatePrompt` explicitly checks `locals.user`. The parent Admin layout redirects non-admins during normal navigation, but does not authorize direct form-action POSTs. Shared-edit confirmation and Production-owned prompt filtering are not permission checks.
 
 ## Implementation
-1. Inspect the current route and nearby Admin authorization conventions. Reuse the existing `canManageCaseAssets(locals.user)` Production Admin predicate (or the equivalent current common guard). In `load`, deny unauthorized reads **before** opening DB or looking up the prompt, using established route-level denial behavior. In `updatePrompt`, deny unauthorized calls with an explicit 403 **before** DB access, existence checks, form parsing, or mutation.
-2. Preserve authorized behavior: Production-owned prompt filtering, shared-usage confirmation, conflict handling, error responses, and the success redirect. Do not alter schemas, generic authentication hooks, Preview, question library business logic, other Admin routes, or Cloudflare settings.
+1. Reuse the existing Production Admin role predicate (`canManageCaseAssets(locals.user)` or current equivalent). In `load`, deny unauthorized access **before route-specific DB access or prompt lookup**. Preserve normal navigation behavior already provided by the parent Admin layout (unauthenticated users go to sign-in; learners go to Study); do not disclose prompt details through an unauthorized route load.
+2. In the named `updatePrompt` action, reject unauthorized callers with **403 before route-specific DB access, prompt existence checks, form parsing, or mutation**. Do not rely on the parent layout or shared-edit guard to authorize a direct POST.
+3. Preserve authorized behavior: Production-owned prompt filtering, shared-usage confirmation, conflict handling, error responses, and success redirect. Do not change global hooks, Preview, schemas, question library business logic, other Admin routes, or Cloudflare settings.
 
-## Executable acceptance
-- Invoke the **actual route load and named action** with unauthenticated and ordinary learner identities: neither may read prompt details or reach a DB read/write; action returns 403.
-- Invoke the named action with an authorized Production Admin against an existing prompt: the normal save and redirect still work, including the existing shared-edit guard. Preserve the existing Production-ownership check.
-- Add focused route-level regression coverage (not helper-only inspection), reusing existing test fixtures. Preview-only identity must not gain Production Admin access; preserve the existing Preview Worker `/admin` block without building a new Preview suite.
-- Run focused tests and repository-required validation. Report what ran, resulting head SHA, and any limitations.
+## Focused executable acceptance
+- Exercise the **actual route load and named action**, not only a helper: unauthenticated and ordinary learner callers cannot obtain prompt details or cause a route-specific DB read/write; direct unauthorized `updatePrompt` calls return 403.
+- Authorized Production Admin can load an existing Production prompt and successfully save it through the action with existing shared-edit behavior and redirect preserved; non-Production-owned prompts remain excluded.
+- Reuse existing test fixtures. No separate Preview-only identity test or new Preview/browser suite: Preview is sunset and its existing `/admin` hook boundary is outside this change.
+- Run focused tests and repository-required final validation; report results, head SHA, and limitations.
 
 ## PR handoff
-Keep this Draft PR open and make implementation commits on **this branch**; do not open another PR, merge, deploy, or mark Ready for Review. Avoid a general auth audit or unrelated hardening.
+Commit and push implementation to **this existing Draft PR**; do not open another PR, merge, deploy, or mark Ready for Review. Avoid unrelated security hardening or broad refactors.
