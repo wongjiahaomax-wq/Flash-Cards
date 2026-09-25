@@ -20,6 +20,11 @@ function makeElement(overrides = {}) {
     querySelector() { return null; },
     querySelectorAll() { return []; },
     addEventListener(type, listener) { listeners.set(type, listener); },
+    insertAdjacentHTML(position, html) { this.innerHTML += html; },
+    removeAttribute(name) { if (name === 'src') this.src = ''; },
+    remove() { this.removed = true; this.isConnected = false; },
+    focus() { this.focused = true; },
+    isConnected: true,
     listener(type) { return listeners.get(type); },
     click() { return this.onclick?.(); },
     ...overrides
@@ -101,6 +106,14 @@ globalThis.__presentationTest = {
     selectedSourcePath = null;
   },
   setRender(fn) { renderCurrent = fn; },
+  setPersist(fn) { persist = fn; },
+  setLoadResources(fn) { loadResources = fn; },
+  enterCoverage,
+  renderCurrent,
+  orderedCoverage,
+  openViewer,
+  showViewerSlide,
+  closeViewer,
   refsHtml,
   questionCard,
   wireCurrent,
@@ -110,7 +123,9 @@ globalThis.__presentationTest = {
 `;
   const elements = new Map();
   const selectorResults = new Map();
+  const documentListeners = new Map();
   const document = {
+    listener(type) { return documentListeners.get(type); },
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, makeElement());
       return elements.get(id);
@@ -120,7 +135,7 @@ globalThis.__presentationTest = {
       return null;
     },
     querySelectorAll(selector) { return selectorResults.get(selector) ?? []; },
-    addEventListener() {},
+    addEventListener(type, callback) { documentListeners.set(type, callback); },
     createElement() { return makeElement(); }
   };
   const window = { addEventListener() {}, confirm: () => false };
@@ -204,4 +219,83 @@ test('styled file input keeps the real onchange load path executable', async () 
   assert.equal(elements.get('empty-start').hidden, true);
   assert.equal(elements.get('review-shell').hidden, false);
   assert.equal(elements.get('batch').textContent, 'Presentation browser test');
+});
+
+test('gallery follows sourceFiles and page order despite shuffled multi-source coverage; read-only navigation preserves approval', async () => {
+  const { harness, elements } = loadHarness();
+  const bundle = makeBundle();
+  bundle.reviewMap.sourceFiles.reverse();
+  bundle.reviewMap.sourceCoverage.reverse();
+  bundle.reviewMap.cases[0].reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  harness.setRender(async () => {});
+  elements.get('coverage').click();
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
+  elements.get('coverage-gallery').click();
+  const html = elements.get('workspace').innerHTML;
+  const labels = ['source-2.pdf · Slide 3', 'source-2.pdf · Slide 4', 'source-1.pdf · Slide 3', 'source-1.pdf · Slide 4'];
+  const offsets = labels.map(label => html.indexOf(label));
+  assert.ok(offsets.every(offset => offset > 0), html);
+  assert.deepEqual(offsets, [...offsets].sort((a, b) => a - b));
+  assert.doesNotMatch(html, /<img[^>]* src=/, 'gallery does not eagerly load every full-resolution image');
+  await elements.get('approve').click();
+  await elements.get('reject').click();
+  elements.get('next').click();
+  const filter = elements.get('filter');
+  filter.value = 'rejected';
+  filter.onchange({ target: filter });
+  assert.equal(filter.value, 'all');
+  assert.equal(harness.current().index, 0);
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
+  assert.equal(elements.get('approve').disabled, true);
+  assert.equal(elements.get('reject').disabled, true);
+});
+
+test('committing an approved Case edit while entering gallery preserves approval invalidation and late saves cannot replace gallery', async () => {
+  const { harness, context, elements, selectorResults } = loadHarness();
+  const bundle = makeBundle();
+  const meta = bundle.reviewMap.cases[0];
+  meta.reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  let finishPersist;
+  harness.setPersist(() => new Promise(resolve => { finishPersist = resolve; }));
+  const input = makeElement({ dataset: { edit: 'case.title' }, value: 'Edited title' });
+  selectorResults.set('[data-edit]', [input]);
+  harness.wireCurrent(meta);
+  context.document.activeElement = { blur() { input.listener('change')(); } };
+  elements.get('coverage').click();
+  assert.equal(bundle.manifest.cases[0].title, 'Edited title');
+  assert.equal(meta.reviewStatus, 'needs_review', 'real content edits retain existing approval invalidation');
+  elements.get('coverage-gallery').click();
+  const grid = elements.get('coverage-gallery-grid');
+  grid.scrollTop = 72;
+  const galleryHtml = elements.get('workspace').innerHTML;
+  finishPersist(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(elements.get('workspace').innerHTML, galleryHtml, 'late edit save must not replace gallery');
+  assert.equal(grid.scrollTop, 72, 'late edit save must not reset scroll position');
+  assert.equal(meta.reviewStatus, 'needs_review');
+});
+
+test('viewer receives and restores focus; slide arrows cannot mutate the underlying Case', async () => {
+  const { harness, context, elements } = loadHarness();
+  const bundle = makeBundle();
+  bundle.reviewMap.cases[0].reviewStatus = 'approved';
+  harness.setBundle(bundle);
+  harness.setRender(async () => {});
+  const trigger = makeElement({ focus() { context.document.activeElement = this; } });
+  const close = makeElement({ focus() { context.document.activeElement = this; } });
+  elements.set('coverage-viewer-close', close);
+  elements.set('workspace', makeElement());
+  harness.enterCoverage();
+  elements.get('coverage-gallery').click();
+  harness.openViewer(0, trigger);
+  assert.equal(context.document.activeElement, close, 'focus moves into viewer');
+  await harness.showViewerSlide(1);
+  assert.match(elements.get('coverage-viewer-position').textContent, /source-1\.pdf · Slide 4 of 4/);
+  context.document.listener('keydown')({ key: 'x', target: null, preventDefault() {} });
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved', 'Case shortcuts are isolated');
+  context.document.listener('keydown')({ key: 'Escape', target: null, preventDefault() {} });
+  assert.equal(context.document.activeElement, trigger, 'focus returns to invoking thumbnail');
+  assert.equal(bundle.reviewMap.cases[0].reviewStatus, 'approved');
 });
