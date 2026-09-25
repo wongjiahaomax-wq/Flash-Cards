@@ -1,7 +1,8 @@
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
 import { createAuth } from '$lib/server/auth.js';
+import { serverTimingValue } from '$lib/server/performance-timing.js';
 import {
   consumePasswordResetRequest,
   isDirectPasswordResetRequestPath,
@@ -65,6 +66,9 @@ export async function handle({ event, resolve }) {
 
   const env = event.platform?.env;
   const pathname = event.url.pathname;
+  // Local-only diagnostic for slow Admin navigation; never emit it in Production.
+  const measureAdminNavigation = dev && event.request.method === 'GET' && isRouteWithin(pathname, '/admin');
+  const adminTimings = [];
 
   // The Preview Worker shares production D1/R2, so production Admin and learner
   // Study routes fail closed before any page/action code can run. This also
@@ -111,12 +115,20 @@ export async function handle({ event, resolve }) {
     return resolve(event);
   }
 
+  let startedAt = measureAdminNavigation ? performance.now() : 0;
   const auth = createAuth(env);
+  if (measureAdminNavigation) {
+    adminTimings.push(serverTimingValue('admin-auth-init', performance.now() - startedAt));
+    startedAt = performance.now();
+  }
   event.locals.auth = auth;
 
   const session = await auth.api.getSession({
     headers: event.request.headers
   });
+  if (measureAdminNavigation) {
+    adminTimings.push(serverTimingValue('admin-auth-session', performance.now() - startedAt));
+  }
 
   event.locals.session = session?.session ?? null;
   event.locals.user = session?.user ?? null;
@@ -124,10 +136,15 @@ export async function handle({ event, resolve }) {
   // The durable deletion marker is immediate access revocation. Existing Better
   // Auth session/account rows are drained later in bounded batches, so an old
   // session cookie must fail closed before its physical session row disappears.
-  if (
-    event.locals.user?.id &&
-    await learnerDeletionInProgress(env.DB, event.locals.user.id)
-  ) {
+  let deletionInProgress = false;
+  if (event.locals.user?.id) {
+    startedAt = measureAdminNavigation ? performance.now() : 0;
+    deletionInProgress = await learnerDeletionInProgress(env.DB, event.locals.user.id);
+    if (measureAdminNavigation) {
+      adminTimings.push(serverTimingValue('admin-account-deletion-check', performance.now() - startedAt));
+    }
+  }
+  if (deletionInProgress) {
     event.locals.session = null;
     event.locals.user = null;
     return forbidden('Learner account deletion is in progress.');
@@ -141,10 +158,15 @@ export async function handle({ event, resolve }) {
     return forbidden('Preview-only Admin accounts cannot use learner Study.');
   }
 
-  return svelteKitHandler({
+  const response = await svelteKitHandler({
     event,
     resolve,
     auth,
     building
   });
+  // Append after resolve to retain any page-level Server-Timing metrics.
+  if (measureAdminNavigation && adminTimings.length) {
+    response.headers.append('server-timing', adminTimings.join(', '));
+  }
+  return response;
 }
