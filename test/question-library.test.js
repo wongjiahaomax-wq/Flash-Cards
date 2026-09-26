@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
@@ -12,14 +13,29 @@ import {
   updateQuestionPrompt
 } from '../src/lib/server/db/question-library.js';
 
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('$lib/')) {
+      return {
+        url: new URL('../src/lib/' + specifier.slice('$lib/'.length), import.meta.url).href,
+        shortCircuit: true
+      };
+    }
+    return nextResolve(specifier, context);
+  }
+});
+
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
+  let statementCount = 0;
   const d1 = /** @type {any} */ ({
+    get statementCount() { return statementCount; },
     /** @param {string} sql */
     prepare(sql) {
+      statementCount += 1;
       return {
         /** @param {...any} params */
         bind(...params) {
@@ -39,7 +55,7 @@ function createLearningDb() {
       return Promise.all(statements.map((statement) => statement.run()));
     }
   });
-  return { db: createDb(/** @type {D1Database} */ (d1)), sqlite };
+  return { db: createDb(/** @type {D1Database} */ (d1)), d1, sqlite };
 }
 
 test('Question Library searches prompt and answer text and aggregates shared usage', async () => {
@@ -215,6 +231,127 @@ test('Question Prompt edit rejects a stale usage snapshot', async () => {
       }),
       (error) => error instanceof QuestionPromptInputError && /changed while you were editing/.test(error.message)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Question Prompt route denies unauthenticated and learner loads and actions before database or form access', async () => {
+  const fixture = createLearningDb();
+  try {
+    const { load, actions } = await import('../src/routes/admin/questions/[promptId]/+page.server.js');
+    let formDataCalls = 0;
+
+    for (const user of [null, { id: 'learner', role: 'user' }]) {
+      const event = /** @type {any} */ ({
+        locals: { user },
+        params: { promptId: 'seed-prompt-describe-ecg' },
+        platform: { env: { DB: fixture.d1 } },
+        request: {
+          async formData() {
+            formDataCalls += 1;
+            return new FormData();
+          }
+        }
+      });
+
+      assert.deepEqual(await load(event), { prompt: null });
+      const result = await actions.updatePrompt(event);
+      assert.equal(result.status, 403);
+      assert.match(result.data.error, /Administrator access is required/);
+    }
+
+    assert.equal(fixture.d1.statementCount, 0, 'unauthorized route calls must not prepare D1 statements');
+    assert.equal(formDataCalls, 0, 'unauthorized actions must reject before parsing form data');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Production Admin can load and update a Production Prompt while Preview Prompts stay excluded', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(
+      "INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES ('prompt-route-preview-session', 'prompt-route-preview-owner', 'active', 2000000000000); " +
+      "INSERT INTO question_prompts (id, prompt_md, is_active, preview_session_id) VALUES ('prompt-route-preview-only', 'Preview-only prompt wording', 1, 'prompt-route-preview-session');"
+    );
+
+    const { load, actions } = await import('../src/routes/admin/questions/[promptId]/+page.server.js');
+    const admin = { id: 'production-admin', role: 'admin' };
+    /** @param {string} promptId @param {any} [request] */
+    const routeEvent = (promptId, request = new Request('http://localhost/admin/questions/' + promptId)) => /** @type {any} */ ({
+      locals: { user: admin },
+      params: { promptId },
+      platform: { env: { DB: fixture.d1 } },
+      request
+    });
+
+    const loaded = await load(routeEvent('seed-prompt-describe-ecg'));
+    const loadedPrompt = loaded.prompt;
+    assert.ok(loadedPrompt);
+    assert.equal(loadedPrompt.id, 'seed-prompt-describe-ecg');
+    assert.equal(loadedPrompt.promptMd, 'Describe this ECG.');
+    assert.equal(loadedPrompt.usageCount, 3);
+
+    const previewLoad = await load(routeEvent('prompt-route-preview-only'));
+    assert.deepEqual(previewLoad, { prompt: null });
+
+    let previewFormDataCalls = 0;
+    const previewAction = await actions.updatePrompt(routeEvent('prompt-route-preview-only', /** @type {any} */ ({
+      async formData() {
+        previewFormDataCalls += 1;
+        return new FormData();
+      }
+    })));
+    assert.equal(previewAction.status, 404);
+    assert.match(previewAction.data.error, /Production Question Prompt not found/);
+    assert.equal(previewFormDataCalls, 0);
+    assert.equal(fixture.sqlite.prepare('SELECT prompt_md FROM question_prompts WHERE id = ?').get('prompt-route-preview-only')?.prompt_md, 'Preview-only prompt wording');
+
+    /** @param {{ promptMd: string, expectedUsageCount: number, confirmSharedEdit: boolean }} input */
+    const makeUpdateRequest = ({ promptMd, expectedUsageCount, confirmSharedEdit }) => {
+      const formData = new FormData();
+      formData.set('prompt_md', promptMd);
+      formData.set('expected_usage_count', String(expectedUsageCount));
+      if (confirmSharedEdit) formData.set('confirm_shared_edit', 'on');
+      return new Request('http://localhost/admin/questions/seed-prompt-describe-ecg?/updatePrompt', {
+        method: 'POST',
+        body: formData
+      });
+    };
+
+    const staleResult = await actions.updatePrompt(routeEvent('seed-prompt-describe-ecg', makeUpdateRequest({
+      promptMd: 'A stale wording update',
+      expectedUsageCount: loadedPrompt.usageCount + 1,
+      confirmSharedEdit: true
+    })));
+    assert.equal(staleResult.status, 400);
+    assert.match(staleResult.data.error, /changed while you were editing/);
+
+    const unconfirmedResult = await actions.updatePrompt(routeEvent('seed-prompt-describe-ecg', makeUpdateRequest({
+      promptMd: 'An unconfirmed wording update',
+      expectedUsageCount: loadedPrompt.usageCount,
+      confirmSharedEdit: false
+    })));
+    assert.equal(unconfirmedResult.status, 400);
+    assert.match(unconfirmedResult.data.error, /used in 3 places/);
+
+    await assert.rejects(
+      () => actions.updatePrompt(routeEvent('seed-prompt-describe-ecg', makeUpdateRequest({
+        promptMd: 'Describe this ECG in detail.',
+        expectedUsageCount: loadedPrompt.usageCount,
+        confirmSharedEdit: true
+      }))),
+      (error) => {
+        const redirectError = /** @type {{ status?: number, location?: string }} */ (error);
+        assert.equal(redirectError.status, 303);
+        assert.equal(redirectError.location, '/admin/questions/seed-prompt-describe-ecg?status=saved');
+        return true;
+      }
+    );
+
+    assert.equal(fixture.sqlite.prepare('SELECT prompt_md FROM question_prompts WHERE id = ?').get('seed-prompt-describe-ecg')?.prompt_md, 'Describe this ECG in detail.');
+    assert.equal(fixture.sqlite.prepare('SELECT answer_md FROM case_questions WHERE id = ?').get('seed-caseq-anterior-a-describe')?.answer_md, 'ST elevation in V1–V4 with reciprocal inferior ST depression.');
   } finally {
     fixture.sqlite.close();
   }
