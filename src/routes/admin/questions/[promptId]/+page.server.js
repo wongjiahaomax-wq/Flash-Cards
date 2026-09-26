@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import { QuestionPromptInputError } from '$lib/server/db/question-library.js';
 import {
@@ -20,7 +21,8 @@ async function isProductionPrompt(db, promptId) {
     .limit(1))[0]);
 }
 
-export async function load({ platform, params }) {
+export async function load({ locals, platform, params }) {
+  if (!canManageCaseAssets(locals.user)) return { prompt: null };
   if (!platform?.env?.DB) return { prompt: null };
   const db = createDb(platform.env.DB);
   if (!(await isProductionPrompt(db, params.promptId))) return { prompt: null };
@@ -28,7 +30,8 @@ export async function load({ platform, params }) {
 }
 
 export const actions = {
-  updatePrompt: async ({ request, platform, params }) => {
+  updatePrompt: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const db = createDb(platform.env.DB);
     if (!(await isProductionPrompt(db, params.promptId))) {
